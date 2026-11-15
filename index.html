@@ -26,6 +26,9 @@
   #stam.tired { background: linear-gradient(90deg, #ff6b5a, #ffa58c); }
   .label { font-size: 10px; letter-spacing: .12em; opacity: .75; text-transform: uppercase; }
   #rightCol { position: absolute; top: calc(10px + var(--st)); right: calc(12px + var(--sr)); display: flex; gap: 8px; }
+  #objective { position: absolute; left: 50%; transform: translateX(-50%); top: calc(10px + var(--st)); padding: 6px 14px; font-size: 13px; font-weight: 800;
+    white-space: nowrap; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 700px) { #objective { top: calc(84px + var(--st)); max-width: 80vw; } }
   #compass { width: 64px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   #arrow { width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 20px solid #ffcf6e; }
   #campDist { font-size: 11px; font-weight: 800; margin-top: 4px; }
@@ -90,9 +93,10 @@
     <div class="label">Stamina</div>
   </div>
   <div id="rightCol">
-    <button id="dayBtn" class="panel">🌙</button>
+    <button id="dayBtn" class="panel">🌇</button>
     <div id="compass" class="panel"><div id="arrow"></div><div id="campDist">— m</div></div>
   </div>
+  <div id="objective" class="panel">Next: Juda Ka Talab</div>
   <div id="joyBase"><div id="joyKnob"></div></div>
   <div id="joyHint" class="hint">◀ drag here to walk</div>
   <div id="lookHint" class="hint">drag here to look ▶</div>
@@ -104,11 +108,11 @@
 <div id="start">
   <div class="card">
     <h1>Himalayan Trails</h1>
-    <div class="sub">Kedarkantha · Winter Trek</div>
+    <div class="sub">Kedarkantha · Winter Summit Trek</div>
     <div id="choose">
       <button id="goFull" class="btn">Start Trek · Full (≈ 66 MB)</button>
       <button id="goLite" class="btn">Start Trek · Lite (≈ 38 MB, smoother)</button>
-      <div class="small">Use Wi-Fi for the first load — after that it's cached.<br>Left thumb: walk · Right thumb: look · RUN to jog · 🌙 for night</div>
+      <div class="small">Use Wi-Fi for the first load — after that it's cached.<br>Left thumb: walk · Right thumb: look · RUN to jog<br>Climb from Sankri (1,950 m) to Kedarkantha Summit (3,810 m)</div>
     </div>
     <div id="loading">
       <div id="barWrap"><div id="bar"></div></div>
@@ -165,12 +169,14 @@ const FILES = {
   skyNight:  'qwantani_night_puresky_1k.hdr',
   snowColor: 'Snow014_1K-JPG_Color.jpg',
   snowNormal:'Snow014_1K-JPG_NormalGL.jpg',
+  trailColor: 'Snow013_1K-JPG_Color.jpg',      // footprint snow, used on the trail
+  trailNormal:'Snow013_1K-JPG_NormalGL.jpg',
 };
 const SIZES = { traveler: 3.85, tent: 7.5, campfire: 3.06, mountain: 15.98, firTrees: 17.25, snowPines: 4.61,
-  rockFormation: 11.1, rock: 3.07, skyDay: 1.48, skyNight: 1.39, snowColor: 0.72, snowNormal: 1.67 }; // MB
+  rockFormation: 11.1, rock: 3.07, skyDay: 1.48, skyNight: 1.39, snowColor: 0.72, snowNormal: 1.67, trailColor: 0.97, trailNormal: 1.9 }; // MB
 const QUALITY = {
-  full: { pixelRatio: 1.5, maxPixelRatio: 2, shadow: 1024, treeStep: 6.6, lod1: 30, lod2: 95, texMax: 1024, skip: [] },
-  lite: { pixelRatio: 1.2, maxPixelRatio: 1.5, shadow: 512, treeStep: 8.2, lod1: 20, lod2: 62, texMax: 512, skip: ['mountain', 'rockFormation'] },
+  full: { pixelRatio: 1.5, maxPixelRatio: 2, shadow: 1024, treeStep: 6.8, lod1: 30, lod2: 75, farTrees: 9000, rockDist: 120, texMax: 1024, skip: [] },
+  lite: { pixelRatio: 1.2, maxPixelRatio: 1.5, shadow: 512, treeStep: 8.4, lod1: 20, lod2: 55, farTrees: 5000, rockDist: 80, texMax: 512, skip: ['mountain', 'rockFormation'] },
 };
 const PLAYER = { walk: 2.2, run: 4.8, height: 1.75, yawOffset: 0, drain: 16, regenWalk: 8, regenIdle: 18 };
 let Q = QUALITY.full;
@@ -179,18 +185,26 @@ const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 
 // =================================================================
-//  WORLD SHAPE — terrain height, trail, campsite (pure maths)
+//  THE MOUNTAIN — terrain height, trail, camps (pure maths)
+//  Sankri 1,950 m → Juda Ka Talab → Base Camp → Kedarkantha Summit 3,810 m
 // =================================================================
-const WORLD = { size: 640, cx: 0, cz: -20, playRadius: 235, baseAlt: 2700 };
-const TRAIL_POINTS = [[0,132],[6,112],[15,88],[3,64],[-9,44],[2,22],[14,2],[6,-22],[-10,-44],[-4,-70],[-18,-96],[-12,-120],[-26,-140],[-32,-158]];
-const CAMP = { x: -32, z: -160, radius: 22, name: 'Juda Ka Talab Camp' };
-const LAKE = { x: -6, z: -180, radius: 10 };
-
+const SUMMIT = { x: 0, z: -600 };
+const BOUNDS = { minX: -260, maxX: 320, minZ: -700, maxZ: 850 };         // walkable, detailed area
+const TRAIL_POINTS = [
+  [130,760],[112,700],[136,640],[104,575],[60,525],[78,460],[36,400],[-8,345],[18,280],[-30,225],[-62,170],   // Sankri → forest → Juda
+  [-48,110],[-6,60],[40,-5],[58,-80],[20,-150],[-36,-215],[-44,-280],[-28,-335],                               // Juda → Base Camp
+  [32,-372],[48,-400],[-20,-432],[-40,-452],[30,-487],[44,-505],[-14,-532],[-24,-552],[16,-574],[4,-596],        // switchbacks → summit
+];
+const PLACES = [   // index into TRAIL_POINTS where each place is
+  { key: 'sankri', name: 'Sankri Base Camp', at: 0, alt: 1950 },
+  { key: 'juda',   name: 'Juda Ka Talab',    at: 10, alt: 2780 },
+  { key: 'base',   name: 'Kedarkantha Base Camp', at: 18, alt: 3430 },
+  { key: 'summit', name: 'Kedarkantha Summit', at: 28, alt: 3810 },
+];
 function makeRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function hash2(ix, iz) { let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function noise2(x, z) {
-  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
-  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
   const a = hash2(ix, iz), b = hash2(ix + 1, iz), c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
   return (a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz) * 2 - 1;
 }
@@ -198,96 +212,213 @@ function fbm(x, z, oct = 4) { let s = 0, amp = 0.5, f = 1, n = 0; for (let i = 0
 const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const trailPath = (() => {
-  const P = TRAIL_POINTS, out = [];
-  const cr = (p0, p1, p2, p3, t) => 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
-  for (let i = 0; i < P.length - 1; i++) {
-    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
-    const steps = Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 0.5);
-    for (let s = 0; s < steps; s++) { const t = s / steps; out.push([cr(p0[0], p1[0], p2[0], p3[0], t), cr(p0[1], p1[1], p2[1], p3[1], t)]); }
+// The mountain itself: a big snowy massif with Kedarkantha summit at the top, plus far ranges.
+function mountainHeight(x, z) {
+  const dx = x - SUMMIT.x, dz = z - SUMMIT.z, r = Math.hypot(dx, dz), k = Math.max(0, 1 - r / 1450);
+  let h = 375 * Math.pow(k, 1.45) + 38 * Math.exp(-(r * r) / (70 * 70));                // massif + summit dome
+  h += fbm(x * 0.0035 + 4, z * 0.0035 - 2, 4) * 42 * (0.25 + 0.75 * k);                // shoulders and gullies
+  h += fbm(x * 0.016, z * 0.016, 3) * 7 + fbm(x * 0.06 + 3, z * 0.06, 2) * 1.2;       // smaller bumps
+  // far Himalayan ranges: height grows with distance so peaks stay low in the sky
+  const far = smoothstep(1250, 2600, r);
+  if (far > 0) {
+    const ridge = 1 - Math.abs(fbm(x * 0.0011 + 7, z * 0.0011 - 5, 5));
+    const north = smoothstep(0.1, 0.9, -dz / Math.max(r, 1));
+    h += far * r * (0.03 + Math.pow(ridge, 2.6) * (0.11 + 0.09 * north));
   }
-  out.push(P[P.length - 1].slice());
-  return out;
-})();
-
-const GN = 512, MINX = WORLD.cx - WORLD.size / 2, MINZ = WORLD.cz - WORLD.size / 2, CELL = WORLD.size / (GN - 1);
-const trailGrid = (() => {
-  const g = new Float32Array(GN * GN).fill(1e9);
-  for (const [px, pz] of trailPath) {
-    const cx = Math.round((px - MINX) / CELL), cz = Math.round((pz - MINZ) / CELL);
-    for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
-      const gx = cx + dx, gz = cz + dz; if (gx < 0 || gz < 0 || gx >= GN || gz >= GN) continue;
-      const d = Math.hypot(MINX + gx * CELL - px, MINZ + gz * CELL - pz), k = gz * GN + gx; if (d < g[k]) g[k] = d;
-    }
-  }
-  const a = CELL, b = CELL * Math.SQRT2, N = GN;
-  for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) { const k = z * N + x; let v = g[k];
-    if (x > 0) v = Math.min(v, g[k - 1] + a);
-    if (z > 0) { v = Math.min(v, g[k - N] + a); if (x > 0) v = Math.min(v, g[k - N - 1] + b); if (x < N - 1) v = Math.min(v, g[k - N + 1] + b); } g[k] = v; }
-  for (let z = N - 1; z >= 0; z--) for (let x = N - 1; x >= 0; x--) { const k = z * N + x; let v = g[k];
-    if (x < N - 1) v = Math.min(v, g[k + 1] + a);
-    if (z < N - 1) { v = Math.min(v, g[k + N] + a); if (x < N - 1) v = Math.min(v, g[k + N + 1] + b); if (x > 0) v = Math.min(v, g[k + N - 1] + b); } g[k] = v; }
-  return g;
-})();
-function trailDistance(x, z) {
-  let gx = Math.min(GN - 1.001, Math.max(0, (x - MINX) / CELL)), gz = Math.min(GN - 1.001, Math.max(0, (z - MINZ) / CELL));
-  const ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz, k = iz * GN + ix, g = trailGrid;
-  return lerp(lerp(g[k], g[k + 1], fx), lerp(g[k + GN], g[k + GN + 1], fx), fz);
-}
-function largeHeight(x, z) {
-  let h = (132 - z) * 0.11 + fbm(x * 0.006 + 3.1, z * 0.006 - 7.7, 4) * 12;
-  const bowl = smoothstep(195, 320, Math.hypot(x - WORLD.cx, z - WORLD.cz));
-  return h + bowl * bowl * 95;
-}
-const campH = largeHeight(CAMP.x, CAMP.z), lakeH = largeHeight(LAKE.x, LAKE.z);
-function heightAt(x, z) {
-  let h = largeHeight(x, z);
-  const dT = trailDistance(x, z), onTrail = 1 - smoothstep(2, 9, dT);
-  h += (fbm(x * 0.035 + 50, z * 0.035, 3) * 2.6 + fbm(x * 0.12, z * 0.12, 2) * 0.35) * (1 - onTrail);
-  h -= (1 - smoothstep(0.6, 2.2, dT)) * 0.18;
-  h = lerp(h, campH, 1 - smoothstep(CAMP.radius - 6, CAMP.radius + 10, Math.hypot(x - CAMP.x, z - CAMP.z)));
-  h = lerp(h, lakeH - 0.9, 1 - smoothstep(LAKE.radius - 1, LAKE.radius + 4, Math.hypot(x - LAKE.x, z - LAKE.z)));
   return h;
 }
-const START = { x: trailPath[4][0], z: trailPath[4][1] }; START.y = heightAt(START.x, START.z);
-const altitudeAt = y => Math.round(WORLD.baseAlt + (y - START.y) * 2.6);
+
+// ---- trail centre line ----
+function catmull(p0, p1, p2, p3, t) { const t2 = t * t, t3 = t2 * t; return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3); }
+const trail = (() => {
+  const P = TRAIL_POINTS, pts = [], ctrlIndex = [];
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    ctrlIndex.push(pts.length);
+    const steps = Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 0.5);
+    for (let s = 0; s < steps; s++) { const t = s / steps; pts.push([catmull(p0[0], p1[0], p2[0], p3[0], t), catmull(p0[1], p1[1], p2[1], p3[1], t)]); }
+  }
+  ctrlIndex.push(pts.length); pts.push(P[P.length - 1].slice());
+  const n = pts.length, s = new Float32Array(n), raw = new Float32Array(n), h = new Float32Array(n);
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  for (let i = 0; i < n; i++) raw[i] = mountainHeight(pts[i][0], pts[i][1]);
+  // Designed climb: steady 20–25% grades, short flat sections at each camp.
+  const sAt = k => s[ctrlIndex[k]];
+  const anchors = [[0, raw[0]], [20, raw[0]]];
+  for (const [k, hh] of [[10, raw[0] + 150], [18, raw[0] + 290], [28, raw[0] + 388]]) {
+    anchors.push([sAt(k) - (k === 28 ? 0 : 18), hh]); if (k !== 28) anchors.push([sAt(k) + 18, hh + 1]);
+  }
+  const lin = new Float32Array(n);
+  for (let i = 0, a = 0; i < n; i++) { while (a < anchors.length - 2 && s[i] > anchors[a + 1][0]) a++;
+    const [s0, h0] = anchors[a], [s1, h1] = anchors[a + 1]; lin[i] = h0 + (h1 - h0) * Math.min(1, Math.max(0, (s[i] - s0) / (s1 - s0))); }
+  const W = 50; for (let i = 0; i < n; i++) { let acc = 0, c = 0; for (let j = Math.max(0, i - W); j <= Math.min(n - 1, i + W); j++) { acc += lin[j]; c++; } h[i] = acc / c; }
+  const corr = new Float32Array(n); for (let i = 0; i < n; i++) corr[i] = h[i] - raw[i];   // how much the hillside must move to meet the trail
+  return { pts, s, h, raw, corr, ctrlIndex, length: s[n - 1] };
+})();
+
+// ---- distance-to-trail grid (+ which trail point is nearest) ----
+const CELL = 1.25;
+const GX = Math.ceil((BOUNDS.maxX - BOUNDS.minX) / CELL) + 1, GZ = Math.ceil((BOUNDS.maxZ - BOUNDS.minZ) / CELL) + 1;
+const { tDist, tIdx } = (() => {
+  const N = GX * GZ, d = new Float32Array(N).fill(1e9), id = new Uint16Array(N);
+  trail.pts.forEach(([px, pz], i) => {
+    const cx = Math.round((px - BOUNDS.minX) / CELL), cz = Math.round((pz - BOUNDS.minZ) / CELL);
+    for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) {
+      const gx = cx + b, gz = cz + a; if (gx < 0 || gz < 0 || gx >= GX || gz >= GZ) continue;
+      const k = gz * GX + gx, dd = Math.hypot(BOUNDS.minX + gx * CELL - px, BOUNDS.minZ + gz * CELL - pz);
+      if (dd < d[k]) { d[k] = dd; id[k] = i; }
+    }
+  });
+  const A = CELL, B = CELL * Math.SQRT2;
+  const relax = (k, j, w) => { if (d[j] + w < d[k]) { d[k] = d[j] + w; id[k] = id[j]; } };
+  for (let z = 0; z < GZ; z++) for (let x = 0; x < GX; x++) { const k = z * GX + x;
+    if (x > 0) relax(k, k - 1, A); if (z > 0) { relax(k, k - GX, A); if (x > 0) relax(k, k - GX - 1, B); if (x < GX - 1) relax(k, k - GX + 1, B); } }
+  for (let z = GZ - 1; z >= 0; z--) for (let x = GX - 1; x >= 0; x--) { const k = z * GX + x;
+    if (x < GX - 1) relax(k, k + 1, A); if (z < GZ - 1) { relax(k, k + GX, A); if (x < GX - 1) relax(k, k + GX + 1, B); if (x > 0) relax(k, k + GX - 1, B); } }
+  return { tDist: d, tIdx: id };
+})();
+// Smooth "reshape the hillside" field: how far the ground must rise or sink so the trail
+// sits naturally in it. Averaged over nearby trail points so it never jumps between switchbacks.
+const CC = 5, CX = Math.ceil((BOUNDS.maxX - BOUNDS.minX) / CC) + 1, CZ = Math.ceil((BOUNDS.maxZ - BOUNDS.minZ) / CC) + 1;
+const corrGrid = (() => {
+  const g = new Float32Array(CX * CZ);
+  for (let j = 0; j < CZ; j++) for (let i = 0; i < CX; i++) {
+    const x = BOUNDS.minX + i * CC, z = BOUNDS.minZ + j * CC; let sw = 0, sv = 0, dmin = 1e9;
+    for (let k = 0; k < trail.pts.length; k += 4) {
+      const d = Math.hypot(trail.pts[k][0] - x, trail.pts[k][1] - z); if (d < dmin) dmin = d;
+      if (d > 160) continue; const w = Math.exp(-(d * d) / (20 * 20)) + 1e-12; sw += w; sv += w * trail.corr[k];
+    }
+    g[j * CX + i] = sw > 0 ? sv / sw * (1 - smoothstep(25, 190, dmin)) : 0;
+  }
+  return g;
+})();
+// Smooth trail height near the path (blends both sides of hairpin bends instead of snapping).
+const benchGrid = (() => {
+  const bucket = new Map(), B = 8, key = (a, b) => a + ',' + b;
+  trail.pts.forEach(([x, z], k) => { const kk = key(Math.floor(x / B), Math.floor(z / B)); if (!bucket.has(kk)) bucket.set(kk, []); bucket.get(kk).push(k); });
+  const g = new Float32Array(GX * GZ);
+  for (let j = 0; j < GZ; j++) for (let i = 0; i < GX; i++) {
+    const c = j * GX + i; if (tDist[c] > 11) continue;
+    const x = BOUNDS.minX + i * CELL, z = BOUNDS.minZ + j * CELL, bx = Math.floor(x / B), bz = Math.floor(z / B);
+    let sw = 0, sv = 0;
+    for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) { const L = bucket.get(key(bx + a, bz + b)); if (!L) continue;
+      for (const k of L) { const d = Math.hypot(trail.pts[k][0] - x, trail.pts[k][1] - z); if (d > 14) continue; const w = Math.exp(-(d * d) / 9) + 1e-12; sw += w; sv += w * trail.h[k]; } }
+    g[c] = sw > 0 ? sv / sw : trail.h[tIdx[c]];
+  }
+  return g;
+})();
+function benchAt(x, z) {
+  const fx = Math.min(GX - 1.001, Math.max(0, (x - BOUNDS.minX) / CELL)), fz = Math.min(GZ - 1.001, Math.max(0, (z - BOUNDS.minZ) / CELL));
+  const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, k = iz * GX + ix, g = benchGrid;
+  return lerp(lerp(g[k], g[k + 1], ax), lerp(g[k + GX], g[k + GX + 1], ax), az);
+}
+function corrAt(x, z) {
+  const out = Math.max(BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ, 0);
+  const fx = Math.min(CX - 1.001, Math.max(0, (x - BOUNDS.minX) / CC)), fz = Math.min(CZ - 1.001, Math.max(0, (z - BOUNDS.minZ) / CC));
+  const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, k = iz * CX + ix, g = corrGrid;
+  const ax2 = ax * ax * (3 - 2 * ax), az2 = az * az * (3 - 2 * az);
+  return lerp(lerp(g[k], g[k + 1], ax2), lerp(g[k + CX], g[k + CX + 1], ax2), az2) * (1 - smoothstep(0, 80, out));
+}
+function trailInfo(x, z) {   // → { d: metres from trail centre, i: nearest trail point }
+  const fx = Math.min(GX - 1.001, Math.max(0, (x - BOUNDS.minX) / CELL)), fz = Math.min(GZ - 1.001, Math.max(0, (z - BOUNDS.minZ) / CELL));
+  const ix = Math.floor(fx), iz = Math.floor(fz), ax = fx - ix, az = fz - iz, k = iz * GX + ix;
+  const d = lerp(lerp(tDist[k], tDist[k + 1], ax), lerp(tDist[k + GX], tDist[k + GX + 1], ax), az);
+  const i = tIdx[(az < 0.5 ? k : k + GX) + (ax < 0.5 ? 0 : 1)];
+  const outside = Math.max(BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ, 0);
+  return { d: d + outside, i };
+}
+
+// ---- places (camps) ----
+const places = PLACES.map(p => { const i = trail.ctrlIndex[p.at]; return { ...p, i, x: trail.pts[i][0], z: trail.pts[i][1], y: trail.h[i] }; });
+const juda = places[1];
+const LAKE = { x: juda.x - 30, z: juda.z - 6, radius: 11 };
+const flatSpots = [   // camps get a flat clearing
+  { x: places[0].x - 8, z: places[0].z - 4, r: 20, y: trail.h[places[0].i] },
+  { x: juda.x + 6, z: juda.z + 4, r: 22, y: juda.y },
+  { x: places[2].x + 4, z: places[2].z + 6, r: 20, y: places[2].y },
+  { x: places[3].x, z: places[3].z, r: 9, y: places[3].y },
+];
+const CAMPS = flatSpots;
+
+function heightAt(x, z) {
+  let h = mountainHeight(x, z);
+  const { d, i } = trailInfo(x, z);
+  h += corrAt(x, z);                                   // reshape the hillside around the trail (smooth)
+  if (d < 8) {
+    const bench = 1 - smoothstep(2.4, 7.8, d);         // the trail is cut into the hillside
+    h = lerp(h, benchAt(x, z), bench);
+    h -= (1 - smoothstep(0.6, 2.2, d)) * 0.15;
+  }
+  for (const c of flatSpots) { const dc = Math.hypot(x - c.x, z - c.z); if (dc < c.r + 14) h = lerp(h, c.y, 1 - smoothstep(c.r, c.r + 14, dc)); }
+  const dl = Math.hypot(x - LAKE.x, z - LAKE.z); if (dl < LAKE.radius + 5) h = lerp(h, juda.y - 0.9, 1 - smoothstep(LAKE.radius - 1, LAKE.radius + 5, dl));
+  return h;
+}
+const H0 = trail.h[0], H1 = trail.h[trail.h.length - 1];
+const altitudeAt = y => Math.round(1950 + (y - H0) * (3810 - 1950) / (H1 - H0));
+places.forEach(p => { p.alt = altitudeAt(p.y); });   // signs show the same altitude as the screen
+const slopeAt = (x, z) => Math.hypot(heightAt(x + 1, z) - heightAt(x - 1, z), heightAt(x, z + 1) - heightAt(x, z - 1)) / 2;
+// Forest by altitude: dense below Juda Ka Talab, thinning toward Base Camp, none above the tree line.
+const forestK = y => 1 - smoothstep(175, 300, y);
 
 function scatter() {
-  const rng = makeRng(7), trees = [], saplings = [], bushes = [], bigRocks = [], smallRocks = [];
-  const R = WORLD.size / 2 - 8, inPlay = (x, z) => Math.hypot(x - WORLD.cx, z - WORLD.cz) < 262;
-  const clear = (x, z, e = 0) => Math.hypot(x - CAMP.x, z - CAMP.z) > CAMP.radius + 3 + e && Math.hypot(x - LAKE.x, z - LAKE.z) > LAKE.radius + 4 + e;
+  const rng = makeRng(7), out = { trees: [], farTrees: [], saplings: [], bushes: [], bigRocks: [], smallRocks: [], trailBoulders: [], cairns: [] };
+  const clear = (x, z, e = 0) => CAMPS.every(c => Math.hypot(x - c.x, z - c.z) > c.r + 4 + e) && Math.hypot(x - LAKE.x, z - LAKE.z) > LAKE.radius + 5 + e;
+  const inB = (x, z, m = 0) => x > BOUNDS.minX + m && x < BOUNDS.maxX - m && z > BOUNDS.minZ + m && z < BOUNDS.maxZ - m;
+  // main forest — jittered grid, clumped with noise
   const st = Q.treeStep;
-  for (let gz = -R; gz <= R; gz += st) for (let gx = -R; gx <= R; gx += st) {
-    const x = WORLD.cx + gx + (rng() - 0.5) * st * 0.9, z = WORLD.cz + gz + (rng() - 0.5) * st * 0.9;
-    const r1 = rng(), r2 = rng(), r3 = rng();
-    if (!inPlay(x, z) || !clear(x, z)) continue;
-    const dT = trailDistance(x, z); if (dT < 4.2) continue;
-    let p = 0.42 + fbm(x * 0.02 + 11, z * 0.02 - 4, 3) * 0.75; if (dT < 9) p *= 0.45;
-    if (r1 > p) continue;
-    trees.push({ x, z, y: heightAt(x, z), rot: r2 * Math.PI * 2, scale: 0.75 + r3 * 0.6 });
+  for (let z = BOUNDS.minZ + 8; z <= BOUNDS.maxZ - 8; z += st) for (let x = BOUNDS.minX + 8; x <= BOUNDS.maxX - 8; x += st) {
+    const px = x + (rng() - 0.5) * st * 0.9, pz = z + (rng() - 0.5) * st * 0.9, r1 = rng(), r2 = rng(), r3 = rng();
+    const { d } = trailInfo(px, pz); if (d < 5.6 || !clear(px, pz)) continue;
+    const y = heightAt(px, pz), fk = forestK(y); if (fk < 0.03) continue;
+    let p = (0.42 + fbm(px * 0.02 + 11, pz * 0.02 - 4, 3) * 0.75) * fk; if (d < 9) p *= 0.45;
+    if (r1 > p || slopeAt(px, pz) > 1.0) continue;
+    out.trees.push({ x: px, z: pz, y: y - 0.25, rot: r2 * 6.283, scale: (0.75 + r3 * 0.6) * (0.75 + 0.25 * fk) });
   }
-  for (let i = 0; i < 260; i++) {
-    const x = WORLD.cx + (rng() - 0.5) * 500, z = WORLD.cz + (rng() - 0.5) * 500, r = rng(), s = rng();
-    if (trailDistance(x, z) < 3.8 || !inPlay(x, z) || !clear(x, z, -4)) continue;
-    saplings.push({ x, z, y: heightAt(x, z), rot: r * 6.283, scale: 0.6 + s * 0.7 });
+  // far forest on the surrounding slopes (cheap flat billboards)
+  for (let i = 0; i < Q.farTrees; i++) {
+    const x = BOUNDS.minX - 420 + rng() * (BOUNDS.maxX - BOUNDS.minX + 840), z = BOUNDS.minZ - 420 + rng() * (BOUNDS.maxZ - BOUNDS.minZ + 840), r = rng(), s = rng();
+    if (inB(x, z, -4)) continue;
+    const y = mountainHeight(x, z);
+    if (r > forestK(y) * (0.55 + fbm(x * 0.01, z * 0.01, 2) * 0.6)) continue;
+    out.farTrees.push({ x, z, y: y - 1, rot: s * 6.283, scale: 0.9 + s * 0.5 });
   }
-  for (let i = 0; i < 160; i++) {
-    const k = Math.floor(rng() * trailPath.length), [px, pz] = trailPath[k], a = rng() * 6.283, d = 3 + rng() * 9;
-    const x = px + Math.cos(a) * d, z = pz + Math.sin(a) * d;
-    if (trailDistance(x, z) < 2.8 || !clear(x, z, -6)) continue;
-    bushes.push({ x, z, y: heightAt(x, z) - 0.05, rot: a, scale: 0.7 + rng() * 0.8 });
+  // young snow-laden pines near the tree line
+  for (let i = 0; i < 900 && out.saplings.length < 260; i++) {
+    const x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX), z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ), r = rng(), s = rng();
+    if (!inB(x, z, 10) || trailInfo(x, z).d < 7 || !clear(x, z)) continue;
+    const y = heightAt(x, z); if (r > smoothstep(120, 190, y) * (1 - smoothstep(300, 345, y))) continue;
+    out.saplings.push({ x, z, y: y - 0.1, rot: s * 6.283, scale: 0.6 + s * 0.7 });
   }
-  for (let i = 0; i < 70 && bigRocks.length < 30; i++) {
-    const x = WORLD.cx + (rng() - 0.5) * 480, z = WORLD.cz + (rng() - 0.5) * 480, r = rng(), s = rng();
-    if (trailDistance(x, z) < 7 || !clear(x, z, 2)) continue;
-    bigRocks.push({ x, z, y: heightAt(x, z) - 0.6, rot: r * 6.283, scale: 2.2 + s * 3.5 });
+  // bare bushes in the lower valley, beside the path
+  for (let i = 0; i < 500 && out.bushes.length < 170; i++) {
+    const k = Math.floor(rng() * trail.pts.length), [px, pz] = trail.pts[k], a = rng() * 6.283, dd = 3 + rng() * 10;
+    const x = px + Math.cos(a) * dd, z = pz + Math.sin(a) * dd;
+    if (trail.h[k] > 200 || trailInfo(x, z).d < 2.8 || !clear(x, z, -6)) continue;
+    out.bushes.push({ x, z, y: heightAt(x, z) - 0.05, rot: a, scale: 0.7 + rng() * 0.8 });
   }
-  for (let i = 30; i < trailPath.length - 40; i += 12 + Math.floor(rng() * 16)) {
-    const [px, pz] = trailPath[i], [qx, qz] = trailPath[i + 1], tx = qx - px, tz = qz - pz, L = Math.hypot(tx, tz) || 1;
-    const side = rng() < 0.5 ? -1 : 1, off = 2.7 + rng() * 1.4, x = px - tz / L * off * side, z = pz + tx / L * off * side;
-    smallRocks.push({ x, z, y: heightAt(x, z) - 0.12, rot: rng() * 6.283, scale: 0.35 + rng() * 0.7 });
+  // boulder fields — more of them high up on the open mountainside
+  for (let i = 0; i < 1500 && out.bigRocks.length < 70; i++) {
+    const x = BOUNDS.minX + rng() * (BOUNDS.maxX - BOUNDS.minX), z = BOUNDS.minZ + rng() * (BOUNDS.maxZ - BOUNDS.minZ), r = rng(), s = rng();
+    if (!inB(x, z, 10) || trailInfo(x, z).d < 7 || !clear(x, z, 2)) continue;
+    const y = heightAt(x, z); if (r > 0.12 + 0.88 * smoothstep(210, 330, y)) continue;
+    out.bigRocks.push({ x, z, y: y - 0.5, rot: s * 6.283, scale: 1.8 + rng() * 3.4 });
   }
-  return { trees, saplings, bushes, bigRocks, smallRocks };
+  // boulders and stones you pass right beside the trail
+  const side = (i, off) => { const [px, pz] = trail.pts[i], [qx, qz] = trail.pts[Math.min(i + 2, trail.pts.length - 1)], tx = qx - px, tz = qz - pz, L = Math.hypot(tx, tz) || 1; return [px - tz / L * off, pz + tx / L * off]; };
+  for (let i = 30; i < trail.pts.length - 30; i += 40 + Math.floor(rng() * 30)) {
+    const [x, z] = side(i, (rng() < 0.5 ? -1 : 1) * (4.2 + rng() * 6)); if (!clear(x, z, -2)) continue;
+    const sc = 1.1 + rng() * 2.4; out.trailBoulders.push({ x, z, y: heightAt(x, z) - 0.25 * sc, rot: rng() * 6.283, scale: sc });
+  }
+  for (let i = 20; i < trail.pts.length - 20; i += 14 + Math.floor(rng() * 18)) {
+    const [x, z] = side(i, (rng() < 0.5 ? -1 : 1) * (2.6 + rng() * 1.4)); if (!clear(x, z, -6)) continue;
+    out.smallRocks.push({ x, z, y: heightAt(x, z) - 0.1, rot: rng() * 6.283, scale: 0.3 + rng() * 0.6 });
+  }
+  // stone cairns (trail markers) every ~70 m
+  for (let i = 60; i < trail.pts.length - 20; i += 140) {
+    const [x, z] = side(i, i % 280 === 60 ? 2.6 : -2.6); const y = heightAt(x, z) - 0.05;
+    [[0.8, 0], [0.56, 0.36], [0.36, 0.62]].forEach(([sc, dy], k) => out.cairns.push({ x, z, y: y + dy, rot: rng() * 6.283 + k, scale: sc }));
+  }
+  return out;
 }
 
 // =================================================================
@@ -299,8 +430,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xb7c6d6, 0.0024);
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
+scene.fog = new THREE.FogExp2(0xc6d4e3, 0.0006);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 14000);
 let pixelRatio = 1;
 
 // ---------- shader helpers ----------
@@ -457,103 +588,237 @@ function explainWhere() {
 }
 
 // =================================================================
-//  SKY & DAY / NIGHT
+//  SKY & TIME OF DAY — sunrise · day · sunset · night
+//  The sky is drawn in code (sharp at any resolution). Your HDR files
+//  light the scene: sunflowers_puresky for daytime, qwantani_night for night.
 // =================================================================
-const sky = { day: null, night: null, dayEnv: null, nightEnv: null, isNight: false };
-const SUN_DIR = new THREE.Vector3(0.591, 0.683, 0.43).normalize();      // where the sun is in your day sky
-const MOON_DIR = new THREE.Vector3(-0.35, 0.8, 0.45).normalize();
-let sun, hemi, fireLight, headlamp, fireGlow, flameMats = [];
-
-function setNight(night) {
-  sky.isNight = night;
-  $('dayBtn').textContent = night ? '☀️' : '🌙';
-  if (night) {
-    scene.background = sky.night || new THREE.Color(0x0b1220);
-    scene.environment = sky.nightEnv;
-    scene.backgroundIntensity = 0.32; scene.environmentIntensity = 0.22;
-    scene.fog.color.set(0x1b2636); scene.fog.density = 0.0042;
-    sun.color.set(0xa9c0ff); sun.intensity = 0.55;
-    hemi.color.set(0x41557a); hemi.groundColor.set(0x1a1f2b); hemi.intensity = sky.nightEnv ? 0.25 : 0.6;
-    renderer.toneMappingExposure = 1.0;
-    fireLight.userData.base = 55; headlamp.intensity = 45; fireGlow.material.opacity = 0.9;
-  } else {
-    scene.background = sky.day || new THREE.Color(0x9fc0e6);
-    scene.environment = sky.dayEnv;
-    scene.backgroundIntensity = 1.5; scene.environmentIntensity = 0.65;
-    scene.fog.color.set(0xb7c6d6); scene.fog.density = 0.0024;
-    sun.color.set(0xfff0dc); sun.intensity = 3.2;
-    hemi.color.set(0xbcd2f0); hemi.groundColor.set(0xe6e2dc); hemi.intensity = sky.dayEnv ? 0.5 : 1.6;
-    renderer.toneMappingExposure = 0.9;
-    fireLight.userData.base = 14; headlamp.intensity = 0; fireGlow.material.opacity = 0.25;
+const sky = { dayEnv: null, nightEnv: null, isNight: false, mode: 'day' };
+const MODES = ['sunrise', 'day', 'sunset', 'night'];
+const TOD = {
+  sunrise: { sun: [0.93, 0.08, 0.36], sunCol: 0xffb27a, sunI: 2.6, zen: [0.10, 0.18, 0.44], hor: [1.0, 0.64, 0.42], glow: [1.8, 0.85, 0.38],
+    cloud: [1.0, 0.76, 0.6], fog: 0xd8b8a6, fogD: 0.00068, hemiSky: 0xc4b6d8, hemiGround: 0xe8d2c0, hemiI: 0.55, env: 0.32, exp: 0.95, stars: 0.12, fire: 28, lamp: 0,
+    label: '🌅', title: 'Sunrise', text: 'Golden light on the peaks of the Garhwal Himalaya.' },
+  day: { sun: [0.45, 0.72, 0.52], sunCol: 0xfff0dc, sunI: 3.3, zen: [0.08, 0.24, 0.62], hor: [0.58, 0.71, 0.88], glow: [1.0, 0.82, 0.58],
+    cloud: [1.0, 1.0, 1.0], fog: 0xc6d4e3, fogD: 0.0006, hemiSky: 0xb9d0f2, hemiGround: 0xe9e4dc, hemiI: 0.45, env: 0.6, exp: 0.88, stars: 0, fire: 14, lamp: 0,
+    label: '☀️', title: 'Daytime', text: 'Clear blue skies over the trail.' },
+  sunset: { sun: [-0.92, 0.08, 0.38], sunCol: 0xff8a5a, sunI: 2.3, zen: [0.11, 0.12, 0.36], hor: [1.0, 0.46, 0.4], glow: [2.0, 0.6, 0.32],
+    cloud: [1.0, 0.6, 0.55], fog: 0xcf9fa2, fogD: 0.0007, hemiSky: 0xb7a0cc, hemiGround: 0xdcc0b8, hemiI: 0.5, env: 0.28, exp: 0.95, stars: 0.18, fire: 30, lamp: 10,
+    label: '🌇', title: 'Sunset', text: 'Orange and pink light fading over the ridges.' },
+  night: { sun: [-0.42, 0.62, 0.55], sunCol: 0x9db6ff, sunI: 0.85, zen: [0.004, 0.008, 0.025], hor: [0.045, 0.065, 0.11], glow: [0.18, 0.22, 0.36],
+    cloud: [0.14, 0.16, 0.22], fog: 0x0f1726, fogD: 0.0012, hemiSky: 0x3d5482, hemiGround: 0x1b2233, hemiI: 0.35, env: 0.3, exp: 1.05, stars: 1, fire: 55, lamp: 45,
+    label: '🌙', title: 'Night', text: 'Your headlamp is on. Follow the cairns and the campfire glow.' },
+};
+let skyDome, sun, hemi, fireLight, headlamp;
+const fireGlows = [], fires = [];
+const SUN_DIR = new THREE.Vector3(...TOD.day.sun).normalize();
+// current (applied) values, and the blend toward the chosen time of day
+const todNow = { sun: SUN_DIR, sunCol: new THREE.Color(), sunI: 3, zen: new THREE.Vector3(), hor: new THREE.Vector3(), glow: new THREE.Vector3(), cloud: new THREE.Vector3(),
+  fog: new THREE.Color(), fogD: 0.0006, hemiSky: new THREE.Color(), hemiGround: new THREE.Color(), hemiI: 0.5, env: 0.6, exp: 0.9, stars: 0, fire: 14, lamp: 0 };
+const tod = { k: 1, from: null, to: null };
+function todValues(name) {
+  const p = TOD[name];
+  return { sun: new THREE.Vector3(...p.sun).normalize(), sunCol: new THREE.Color(p.sunCol), sunI: p.sunI, zen: new THREE.Vector3(...p.zen), hor: new THREE.Vector3(...p.hor),
+    glow: new THREE.Vector3(...p.glow), cloud: new THREE.Vector3(...p.cloud), fog: new THREE.Color(p.fog), fogD: p.fogD, hemiSky: new THREE.Color(p.hemiSky),
+    hemiGround: new THREE.Color(p.hemiGround), hemiI: p.hemiI, env: p.env, exp: p.exp, stars: p.stars, fire: p.fire, lamp: p.lamp, night: name === 'night' };
+}
+function copyNow() {
+  const o = {}; for (const k in todNow) o[k] = todNow[k].clone ? todNow[k].clone() : todNow[k];
+  o.night = sky.isNight; return o;
+}
+function setTimeOfDay(name, instant = false) {
+  tod.from = instant ? todValues(name) : copyNow(); tod.to = todValues(name); tod.k = instant ? 1 : 0;
+  sky.mode = name; sky.isNight = name === 'night';
+  const next = MODES[(MODES.indexOf(name) + 1) % MODES.length];
+  $('dayBtn').textContent = TOD[next].label;           // the button shows what you'll switch to
+  applyTimeOfDay(0);
+}
+const setNight = n => setTimeOfDay(n ? 'night' : 'day', true);
+function applyTimeOfDay(dt) {
+  if (!tod.to) return;
+  if (tod.k < 1) tod.k = Math.min(1, tod.k + dt / 2.5);
+  const e = tod.k * tod.k * (3 - 2 * tod.k), A = tod.from, B = tod.to;
+  for (const k in todNow) {
+    const a = A[k], b = B[k];
+    if (typeof b === 'number') todNow[k] = lerp(a, b, e);
+    else if (b.isColor) todNow[k].copy(a).lerp(b, e);
+    else todNow[k].copy(a).lerp(b, e);
   }
+  todNow.sun.normalize();
+  sun.color.copy(todNow.sunCol); sun.intensity = todNow.sunI;
+  hemi.color.copy(todNow.hemiSky); hemi.groundColor.copy(todNow.hemiGround); hemi.intensity = todNow.hemiI * (sky.dayEnv ? 1 : 3);
+  scene.fog.color.copy(todNow.fog); scene.fog.density = todNow.fogD;
+  scene.background = null;
+  const nightEnv = (e > 0.5 ? B.night : A.night);
+  scene.environment = nightEnv ? sky.nightEnv : sky.dayEnv; scene.environmentIntensity = todNow.env;
+  renderer.toneMappingExposure = todNow.exp;
+  fireLight.userData.base = todNow.fire; headlamp.intensity = todNow.lamp;
+  for (const g of fireGlows) g.material.opacity = 0.2 + 0.7 * smoothstep(14, 55, todNow.fire);
+  const u = skyDome.material.uniforms, c = {}; scene.fog.color.getRGB(c, THREE.SRGBColorSpace);
+  u.uFog.value.set(c.r, c.g, c.b); u.uSunDir.value.copy(todNow.sun); u.uZen.value.copy(todNow.zen); u.uHor.value.copy(todNow.hor);
+  u.uGlow.value.copy(todNow.glow); u.uCloud.value.copy(todNow.cloud); u.uStars.value = todNow.stars; u.uMoon.value = smoothstep(0.6, 1.0, todNow.stars);
+}
+
+function makeSkyDome() {
+  const V3 = () => new THREE.Vector3();
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uSunDir: { value: V3() }, uZen: { value: V3() }, uHor: { value: V3() }, uGlow: { value: V3() }, uCloud: { value: V3() },
+      uFog: { value: V3() }, uStars: { value: 0 }, uMoon: { value: 0 }, uTime: { value: 0 } },
+    vertexShader: `varying vec3 vDir; void main() { vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); gl_Position = p.xyww; }`,
+    fragmentShader: `
+      uniform vec3 uSunDir, uZen, uHor, uGlow, uCloud, uFog; uniform float uStars, uMoon, uTime; varying vec3 vDir;
+      float h2( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+      float h3( vec3 p ) { return fract( sin( dot( p, vec3( 127.1, 311.7, 74.7 ) ) ) * 43758.5453 ); }
+      float n2( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+        return mix( mix( h2( i ), h2( i + vec2( 1, 0 ) ), f.x ), mix( h2( i + vec2( 0, 1 ) ), h2( i + vec2( 1, 1 ) ), f.x ), f.y ); }
+      float fbm( vec2 p ) { float v = 0.0, a = 0.5; for ( int i = 0; i < 5; i++ ) { v += a * n2( p ); p = p * 2.03 + 7.1; a *= 0.5; } return v; }
+      void main() {
+        vec3 d = normalize( vDir ); float h = d.y, hp = clamp( h, 0.0, 1.0 );
+        vec3 col = mix( uHor, uZen, pow( hp, 0.5 ) );
+        float s = max( dot( d, uSunDir ), 0.0 );
+        float sAz = max( dot( normalize( d.xz + 1e-4 ), normalize( uSunDir.xz + 1e-4 ) ), 0.0 );
+        col += uGlow * ( pow( s, 6.0 ) * 0.22 + pow( s, 120.0 ) * 0.9 );
+        col += uGlow * pow( sAz, 3.0 ) * pow( 1.0 - hp, 6.0 ) * 0.35;                 // warm band along the horizon under the sun
+        if ( h > 0.0 ) {                                                             // drifting clouds
+          vec2 cp = d.xz / ( h + 0.12 ) * 1.1 + vec2( uTime * 0.006, uTime * 0.002 );
+          float cov = smoothstep( 0.52, 0.78, fbm( cp * 1.4 ) ) * smoothstep( 0.0, 0.18, h );
+          float lit = 0.72 + 0.35 * smoothstep( 0.4, 0.9, fbm( cp * 1.4 + uSunDir.xz * 0.06 ) ) + pow( s, 4.0 ) * 0.8;
+          col = mix( col, uCloud * lit, cov * 0.88 );
+        }
+        float disk = smoothstep( 0.99955, 0.99985, s ) * step( -0.02, uSunDir.y );
+        col += mix( vec3( 1.0, 0.92, 0.8 ) * 12.0, vec3( 0.9, 0.93, 1.0 ) * 4.0, uMoon ) * disk;
+        if ( uStars > 0.0 ) {                                                       // stars + Milky Way
+          vec3 sd = d * 260.0; vec3 cell = floor( sd ); float r = h3( cell );
+          float star = step( 0.982, r ) * smoothstep( 0.42, 0.0, length( fract( sd ) - 0.5 ) ) * ( 0.65 + 0.35 * sin( uTime * 1.7 + r * 60.0 ) );
+          col += vec3( 0.9, 0.95, 1.0 ) * star * ( r - 0.982 ) * 120.0 * smoothstep( 0.02, 0.2, h ) * uStars;
+          float band = exp( -pow( dot( d, normalize( vec3( 0.35, 0.45, -0.82 ) ) ) * 3.2, 2.0 ) );
+          col += vec3( 0.06, 0.07, 0.11 ) * band * ( 0.4 + fbm( d.xz * 9.0 + d.y * 3.0 ) ) * smoothstep( 0.0, 0.25, h ) * uStars;
+        }
+        gl_FragColor = vec4( col, 1.0 );
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+        gl_FragColor.rgb = mix( gl_FragColor.rgb, uFog, 1.0 - smoothstep( -0.04, 0.07, h ) );
+      }`,
+    side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+  });
+  const m = new THREE.Mesh(new THREE.SphereGeometry(9000, 48, 24), mat);
+  m.renderOrder = -1000; m.frustumCulled = false;
+  return m;
 }
 
 // =================================================================
-//  TERRAIN (snow ground + trampled trail)
+//  TERRAIN — the walkable mountain (detailed) + snow, footprint trail, rock
 // =================================================================
-function makeTerrain(tColor, tNormal) {
-  const SEG = Q === QUALITY.lite ? 150 : 200;
-  const geo = new THREE.PlaneGeometry(WORLD.size, WORLD.size, SEG, SEG);
-  geo.rotateX(-Math.PI / 2); geo.translate(WORLD.cx, 0, WORLD.cz);
+function makeTerrain(tColor, tNormal, trColor, trNormal) {
+  const step = Q === QUALITY.lite ? 4.5 : 3.0;
+  const W = BOUNDS.maxX - BOUNDS.minX, D = BOUNDS.maxZ - BOUNDS.minZ;
+  const geo = new THREE.PlaneGeometry(W, D, Math.round(W / step), Math.round(D / step));
+  geo.rotateX(-Math.PI / 2); geo.translate((BOUNDS.minX + BOUNDS.maxX) / 2, 0, (BOUNDS.minZ + BOUNDS.maxZ) / 2);
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
   geo.computeVertexNormals();
-  const data = new Uint8Array(GN * GN); for (let i = 0; i < data.length; i++) data[i] = Math.min(255, trailGrid[i] * 10);
-  const trailTex = new THREE.DataTexture(data, GN, GN, THREE.RedFormat, THREE.UnsignedByteType);
+  const nrm = geo.attributes.normal, slope = new Float32Array(p.count);
+  for (let i = 0; i < p.count; i++) slope[i] = 1 - nrm.getY(i);
+  geo.setAttribute('aSlope', new THREE.BufferAttribute(slope, 1));
+  // skirt: a short wall hanging below the edges so no gap shows against the far landscape
+  const sk = [], skI = [], edge = [];
+  const nx = Math.round(W / step), nz = Math.round(D / step);
+  for (let i = 0; i <= nx; i++) edge.push([BOUNDS.minX + i * W / nx, BOUNDS.minZ]);
+  for (let j = 1; j <= nz; j++) edge.push([BOUNDS.maxX, BOUNDS.minZ + j * D / nz]);
+  for (let i = nx - 1; i >= 0; i--) edge.push([BOUNDS.minX + i * W / nx, BOUNDS.maxZ]);
+  for (let j = nz - 1; j >= 0; j--) edge.push([BOUNDS.minX, BOUNDS.minZ + j * D / nz]);
+  edge.forEach(([x, z], k) => { const y = heightAt(x, z); sk.push(x, y, z, x, y - 60, z); if (k) { const a = (k - 1) * 2; skI.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); } });
+  const skirt = new THREE.BufferGeometry(); skirt.setAttribute('position', new THREE.Float32BufferAttribute(sk, 3)); skirt.setIndex(skI); skirt.computeVertexNormals();
+
+  const data = new Uint8Array(GX * GZ); for (let i = 0; i < data.length; i++) data[i] = Math.min(255, tDist[i] * 10);
+  const trailTex = new THREE.DataTexture(data, GX, GZ, THREE.RedFormat, THREE.UnsignedByteType);
   trailTex.magFilter = trailTex.minFilter = THREE.LinearFilter; trailTex.needsUpdate = true;
-  const rep = WORLD.size / 3.5;
-  for (const t of [tColor, tNormal]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, rep); t.anisotropy = 4; }
-  if (tColor) tColor.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tColor, normalMap: tNormal, roughness: 0.92, metalness: 0 });
+  const rep = W / 3.6, repZ = D / 3.6;
+  for (const t of [tColor, tNormal, trColor, trNormal]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep, repZ); t.anisotropy = 4; }
+  for (const t of [tColor, trColor]) if (t) t.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tColor, normalMap: tNormal, roughness: 0.9, metalness: 0 });
   mat.onBeforeCompile = s => {
     s.uniforms.uTrailTex = { value: trailTex };
-    s.uniforms.uTrailInfo = { value: new THREE.Vector4(MINX, MINZ, CELL, GN) };
-    s.vertexShader = 'varying vec2 vXZ;\n' + s.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
-    s.fragmentShader = 'uniform sampler2D uTrailTex; uniform vec4 uTrailInfo; varying vec2 vXZ; float trailK;\n' + s.fragmentShader
+    s.uniforms.uTrailInfo = { value: new THREE.Vector4(BOUNDS.minX, BOUNDS.minZ, CELL, 0) };
+    s.uniforms.uTrailDims = { value: new THREE.Vector2(GX, GZ) };
+    s.uniforms.uTrailMap = { value: trColor || tColor };
+    s.uniforms.uTrailNrm = { value: trNormal || tNormal };
+    s.vertexShader = 'attribute float aSlope; varying float vSlope; varying vec3 vWP;\n' + s.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n vWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz; vSlope = aSlope;');
+    s.fragmentShader = 'uniform sampler2D uTrailTex, uTrailMap, uTrailNrm; uniform vec4 uTrailInfo; uniform vec2 uTrailDims; varying vec3 vWP; varying float vSlope; float trailK; float rockK;\n' + s.fragmentShader
       .replace('#include <map_fragment>', `
         {
-          vec2 g = ( vXZ - uTrailInfo.xy ) / uTrailInfo.z;
-          float d = texture2D( uTrailTex, ( g + 0.5 ) / uTrailInfo.w ).r * 25.5;
+          vec2 g = ( vWP.xz - uTrailInfo.xy ) / uTrailInfo.z;
+          float d = texture2D( uTrailTex, ( g + 0.5 ) / uTrailDims ).r * 25.5;
           #ifdef USE_MAP
             d += ( texture2D( map, vMapUv * 0.21 ).r - 0.7 ) * 2.0;
           #endif
-          trailK = 1.0 - smoothstep( 1.2, 2.2, d );
+          trailK = 1.0 - smoothstep( 1.1, 2.3, d );
         }
         #include <map_fragment>
         #ifdef USE_MAP
-          diffuseColor.rgb *= 0.9 + texture2D( map, vMapUv * 0.043 ).g * 0.15;
-        #endif
-        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.6, 0.6, 0.68 ) + vec3( 0.03, 0.025, 0.02 ), trailK );`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix( roughnessFactor, 0.62, trailK );')
-      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * mix( 0.8, 2.2, trailK );'));
+          float macro = texture2D( map, vMapUv * 0.037 ).g;
+          diffuseColor.rgb *= 0.88 + macro * 0.18;
+          vec3 trodden = texture2D( uTrailMap, vMapUv ).rgb * vec3( 0.86, 0.86, 0.9 );
+          trodden *= mix( vec3( 0.74, 0.68, 0.62 ), vec3( 1.0 ), smoothstep( 10.0, 50.0, vWP.y ) );   // muddy path low in the valley
+          diffuseColor.rgb = mix( diffuseColor.rgb, trodden, trailK );
+          // patches of bare ground low down, wind-scoured rock on steep slopes higher up
+          float bare = ( 1.0 - smoothstep( 12.0, 50.0, vWP.y ) ) * smoothstep( 0.66, 0.78, texture2D( map, vMapUv * 0.061 ).b + macro * 0.2 ) * ( 1.0 - trailK );
+          diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.23, 0.2, 0.16 ) * ( 0.8 + macro * 0.4 ), bare * 0.7 );
+          rockK = smoothstep( 0.24, 0.46, vSlope + ( texture2D( map, vMapUv * 0.09 ).r - 0.62 ) * 0.5 + smoothstep( 300.0, 390.0, vWP.y ) * 0.08 ) * ( 1.0 - trailK );
+          vec3 rock = vec3( 0.2, 0.19, 0.19 ) * ( 0.65 + texture2D( map, vMapUv * 0.47 ).r * 0.7 );
+          diffuseColor.rgb = mix( diffuseColor.rgb, rock, rockK * 0.9 );
+        #endif`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix( roughnessFactor, 0.7, trailK ); roughnessFactor = mix( roughnessFactor, 0.95, rockK );')
+      .replace('#include <normal_fragment_maps>', THREE.ShaderChunk.normal_fragment_maps
+        .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+          'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0; vec3 mapT = texture2D( uTrailNrm, vNormalMapUv ).xyz * 2.0 - 1.0; mapN = normalize( mix( mapN, mapT, trailK ) );')
+        .replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * mix( 1.0, 1.5, trailK ) * mix( 1.0, 1.8, rockK );'));
   };
+  mat.customProgramCacheKey = () => 'terrain4';
   const mesh = new THREE.Mesh(geo, mat); mesh.receiveShadow = true;
-  return mesh;
+  const skirtMesh = new THREE.Mesh(skirt, new THREE.MeshLambertMaterial({ color: 0x8d929c, side: THREE.DoubleSide }));
+  const g = new THREE.Group(); g.add(mesh, skirtMesh);
+  return g;
 }
 
-// distant ring of Himalayan peaks (cheap, procedural)
-function makeRingMountains() {
-  const A = 200, R = 28, pos = new Float32Array((A + 1) * (R + 1) * 3), idx = [];
-  const peakX = -120, peakZ = -1050;
-  for (let r = 0; r <= R; r++) for (let a = 0; a <= A; a++) {
-    const th = a / A * Math.PI * 2, rad = 300 + Math.pow(r / R, 1.4) * 1700;
-    const x = WORLD.cx + Math.cos(th) * rad, z = WORLD.cz + Math.sin(th) * rad;
-    const ridge = 1 - Math.abs(fbm(x * 0.0021, z * 0.0021, 5));
-    let h = smoothstep(300, 760, rad) * (60 + Math.pow(ridge, 2.2) * 520);
-    const dp = Math.hypot(x - peakX, z - peakZ); h += Math.exp(-dp * dp / (2 * 230 * 230)) * 560;
-    const k = (r * (A + 1) + a) * 3;
-    pos[k] = x; pos[k + 1] = (132 - Math.max(-500, Math.min(400, z))) * 0.11 + 73 + h; pos[k + 2] = z;
+// =================================================================
+//  FAR LANDSCAPE — the rest of the mountain and the surrounding ranges
+//  (one big low-detail mesh; its peaks stay low in the sky, never overhead)
+// =================================================================
+const MTN = { x: 2400, z: -3600, width: 3000 };   // where your snowy range model goes (north-east, far away)
+function makeFarTerrain(hasModel) {
+  const N = Q === QUALITY.lite ? 130 : 180, S = 5600, cx = 40, cz = -100;
+  const graded = c0 => { const a = []; for (let i = 0; i <= N; i++) { const u = i / N * 2 - 1; a.push(c0 + Math.sign(u) * Math.pow(Math.abs(u), 2.0) * S); } return a; };
+  // include the exact edges of the walkable area, so the far mesh meets it with no gap
+  const withEdges = (a, lo, hi) => [...a.filter(v => Math.abs(v - lo) > 8 && Math.abs(v - hi) > 8), lo, hi].sort((m, n) => m - n);
+  const xs = withEdges(graded(cx), BOUNDS.minX, BOUNDS.maxX), zs = withEdges(graded(cz), BOUNDS.minZ, BOUNDS.maxZ);
+  const NX = xs.length - 1, NZ = zs.length - 1;
+  const mAng = Math.atan2(MTN.z - SUMMIT.z, MTN.x - SUMMIT.x);
+  const pos = new Float32Array((NX + 1) * (NZ + 1) * 3), idx = [];
+  for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++) {
+    const x = xs[i], z = zs[j], k = (j * (NX + 1) + i) * 3;
+    let y = heightAt(x, z);
+    if (hasModel) {   // lower the ranges in front of your mountain model so its peaks form the skyline there
+      const r = Math.hypot(x - SUMMIT.x, z - SUMMIT.z); let dA = Math.atan2(z - SUMMIT.z, x - SUMMIT.x) - mAng; dA = Math.abs(Math.atan2(Math.sin(dA), Math.cos(dA)));
+      y = lerp(y, y * 0.3, smoothstep(0.42, 0.15, dA) * smoothstep(1600, 2600, r));
+    }
+    if (x > BOUNDS.minX + 1 && x < BOUNDS.maxX - 1 && z > BOUNDS.minZ + 1 && z < BOUNDS.maxZ - 1) y -= 250;   // sink it deep under the detailed terrain
+    pos[k] = x; pos[k + 1] = y; pos[k + 2] = z;
   }
-  for (let r = 0; r < R; r++) for (let a = 0; a < A; a++) { const i0 = r * (A + 1) + a, i2 = i0 + A + 1; idx.push(i0, i0 + 1, i2, i0 + 1, i2 + 1, i2); }
+  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { const a = j * (NX + 1) + i, b = a + NX + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
   const n = geo.attributes.normal.array, col = new Float32Array(pos.length);
   for (let i = 0; i < pos.length; i += 3) {
-    const snow = smoothstep(0.55, 0.78, n[i + 1] + (pos[i + 1] > 380 ? 0.12 : 0)), forest = (1 - smoothstep(130, 230, pos[i + 1])) * smoothstep(0.5, 0.8, n[i + 1]);
-    col[i] = (0.3 + 0.62 * snow) * (1 - forest * 0.75); col[i + 1] = (0.29 + 0.65 * snow) * (1 - forest * 0.68); col[i + 2] = (0.33 + 0.67 * snow) * (1 - forest * 0.66);
+    const y = pos[i + 1], ny = n[i + 1], streak = noise2(pos[i] * 0.02, pos[i + 2] * 0.02 + y * 0.02) * 0.12;
+    const snow = smoothstep(0.52, 0.72, ny + streak + smoothstep(250, 600, y) * 0.15);
+    const forest = forestK(y) * smoothstep(0.6, 0.82, ny) * (0.6 + 0.4 * noise2(pos[i] * 0.01, pos[i + 2] * 0.01));
+    const r = 0.27 + 0.67 * snow, g = 0.26 + 0.69 * snow, b = 0.29 + 0.71 * snow;
+    col[i] = lerp(r, 0.07, forest); col[i + 1] = lerp(g, 0.11, forest); col[i + 2] = lerp(b, 0.09, forest);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true }); applyHaze(mat, 0.2);
-  const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; return m;
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true }); applyHaze(mat, 0.5);
+  const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.receiveShadow = false;
+  return m;
 }
 
 // =================================================================
@@ -590,6 +855,37 @@ class InstancedLOD {
     }));
   }
 }
+// Makes a lighter copy of YOUR model (same shape, fewer triangles) for use at a distance.
+// Vertices that fall in the same small cell are merged ("vertex clustering").
+function simplifyParts(parts, cells) {
+  const box = new THREE.Box3(); for (const p of parts) { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox); }
+  const size = box.getSize(new THREE.Vector3()), cs = Math.max(size.x, size.y, size.z) / cells;
+  return parts.map(({ geometry: g, material }) => {
+    const P = g.attributes.position, Nn = g.attributes.normal, U = g.attributes.uv, idx = g.index;
+    const map = new Map(), rep = new Int32Array(P.count), outP = [], outN = [], outU = [], cnt = [];
+    for (let i = 0; i < P.count; i++) {
+      const k = Math.floor((P.getX(i) - box.min.x) / cs) + ',' + Math.floor((P.getY(i) - box.min.y) / cs) + ',' + Math.floor((P.getZ(i) - box.min.z) / cs);
+      let r = map.get(k);
+      if (r === undefined) { r = cnt.length; map.set(k, r); cnt.push(0); outP.push(0, 0, 0); outN.push(0, 0, 0); outU.push(U ? U.getX(i) : 0, U ? U.getY(i) : 0); }
+      cnt[r]++; outP[r * 3] += P.getX(i); outP[r * 3 + 1] += P.getY(i); outP[r * 3 + 2] += P.getZ(i);
+      if (Nn) { outN[r * 3] += Nn.getX(i); outN[r * 3 + 1] += Nn.getY(i); outN[r * 3 + 2] += Nn.getZ(i); }
+      rep[i] = r;
+    }
+    for (let r = 0; r < cnt.length; r++) { outP[r * 3] /= cnt[r]; outP[r * 3 + 1] /= cnt[r]; outP[r * 3 + 2] /= cnt[r];
+      const l = Math.hypot(outN[r * 3], outN[r * 3 + 1], outN[r * 3 + 2]) || 1; outN[r * 3] /= l; outN[r * 3 + 1] /= l; outN[r * 3 + 2] /= l; }
+    const tris = [], n = idx ? idx.count : P.count;
+    for (let t = 0; t < n; t += 3) {
+      const a = rep[idx ? idx.getX(t) : t], b = rep[idx ? idx.getX(t + 1) : t + 1], c = rep[idx ? idx.getX(t + 2) : t + 2];
+      if (a !== b && b !== c && a !== c) tris.push(a, b, c);
+    }
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.Float32BufferAttribute(outP, 3));
+    ng.setAttribute('normal', new THREE.Float32BufferAttribute(outN, 3));
+    if (U) ng.setAttribute('uv', new THREE.Float32BufferAttribute(outU, 2));
+    ng.setIndex(tris); ng.computeBoundingSphere();
+    return { geometry: ng, material };
+  });
+}
 function bakeParts(root, convert) {
   root.updateWorldMatrix(true, true);
   const parts = [];
@@ -610,71 +906,6 @@ function normalizeLods(lods, size, byMax = false) {
   });
   return height;
 }
-
-// =================================================================
-//  CAMPFIRE FLAMES (animated shader) + embers
-// =================================================================
-const FLAME_VS = `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`;
-const FLAME_FS = `
-  uniform float uTime, uSeed, uBright; varying vec2 vUv;
-  float h( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
-  float n( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
-    return mix( mix( h( i ), h( i + vec2( 1, 0 ) ), f.x ), mix( h( i + vec2( 0, 1 ) ), h( i + vec2( 1, 1 ) ), f.x ), f.y ); }
-  float fbm( vec2 p ) { float v = 0.0, a = 0.5; for ( int i = 0; i < 4; i++ ) { v += a * n( p ); p *= 2.1; a *= 0.5; } return v; }
-  void main() {
-    vec2 uv = vUv;
-    float q = fbm( vec2( uv.x * 3.0 + uSeed, uv.y * 2.4 - uTime * 2.3 ) );
-    float w = ( 1.0 - uv.y ) * 0.42 + 0.03;
-    float dx = abs( uv.x - 0.5 + ( q - 0.5 ) * 0.35 * uv.y );
-    float shape = smoothstep( w, w * 0.25, dx ) * smoothstep( 1.0, 0.2, uv.y + ( q - 0.5 ) * 0.6 ) * smoothstep( 0.0, 0.06, uv.y );
-    float heat = clamp( shape * ( 1.3 - uv.y * 0.7 ) * ( 0.75 + q * 0.5 ), 0.0, 1.0 );
-    vec3 col = mix( vec3( 0.85, 0.12, 0.02 ), vec3( 1.0, 0.5, 0.06 ), smoothstep( 0.1, 0.45, heat ) );
-    col = mix( col, vec3( 1.0, 0.9, 0.55 ), smoothstep( 0.55, 0.95, heat ) );
-    gl_FragColor = vec4( col * heat * uBright, 1.0 );
-  }`;
-function makeFlames(parent, campfireWidth) {
-  const g = new THREE.Group(); parent.add(g);
-  const w = campfireWidth * 0.75, hgt = campfireWidth * 1.15;
-  for (let i = 0; i < 3; i++) {
-    const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uSeed: { value: i * 7.13 }, uBright: { value: 1.6 - i * 0.25 } },
-      vertexShader: FLAME_VS, fragmentShader: FLAME_FS, transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: false,
-    });
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w * (1 - i * 0.18), hgt * (1 - i * 0.12)).translate(0, hgt * (1 - i * 0.12) / 2, 0), mat);
-    m.position.y = campfireWidth * 0.08; m.userData.offset = (i - 1) * 0.6; m.renderOrder = 10;
-    g.add(m); flameMats.push(mat);
-  }
-  // embers
-  const N = 50, pos = new Float32Array(N * 3), rnd = new Float32Array(N);
-  for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * w * 0.6; pos[i * 3 + 2] = (Math.random() - 0.5) * w * 0.6; rnd[i] = Math.random(); }
-  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); eg.setAttribute('aR', new THREE.BufferAttribute(rnd, 1));
-  const emat = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uPR: { value: 1 } },
-    vertexShader: `uniform float uTime, uPR; attribute float aR; varying float vL;
-      void main() { float t = fract( uTime * ( 0.25 + aR * 0.3 ) + aR ); vL = 1.0 - t;
-        vec3 p = position; p.y += t * 3.2; p.x += sin( uTime * 2.0 + aR * 20.0 ) * 0.25 * t; p.z += cos( uTime * 1.7 + aR * 13.0 ) * 0.25 * t;
-        vec4 mv = modelViewMatrix * vec4( p, 1.0 ); gl_Position = projectionMatrix * mv; gl_PointSize = uPR * 3.5 * vL * 6.0 / max( 1.0, -mv.z ) * 4.0; }`,
-    fragmentShader: `varying float vL; void main() { float d = length( gl_PointCoord - 0.5 ); if ( d > 0.5 ) discard; gl_FragColor = vec4( vec3( 1.0, 0.55, 0.15 ) * vL * ( 1.0 - d * 2.0 ) * 2.0, 1.0 ); }`,
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false,
-  });
-  const embers = new THREE.Points(eg, emat); embers.frustumCulled = false; embers.position.y = campfireWidth * 0.2; g.add(embers);
-  // soft glow sprite
-  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
-  const ctx = cv.getContext('2d'), grd = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0, 'rgba(255,170,80,1)'); grd.addColorStop(1, 'rgba(255,120,40,0)'); ctx.fillStyle = grd; ctx.fillRect(0, 0, 64, 64);
-  fireGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
-  fireGlow.scale.setScalar(campfireWidth * 3.2); fireGlow.position.y = campfireWidth * 0.4; g.add(fireGlow);
-  fireLight = new THREE.PointLight(0xff8a3d, 20, 22, 2); fireLight.position.y = campfireWidth * 0.6; fireLight.userData.base = 14; g.add(fireLight);
-  return { group: g, tick: (t) => {
-    for (const m of flameMats) m.uniforms.uTime.value = t;
-    emat.uniforms.uTime.value = t; emat.uniforms.uPR.value = renderer.getPixelRatio();
-    g.children.forEach(c => { if (c.isMesh && c.userData.offset !== undefined) c.rotation.y = Math.atan2(camera.position.x - g.getWorldPosition(_v).x, camera.position.z - _v.z) + c.userData.offset; });
-    const f = 1 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.07 + Math.sin(t * 23.1) * 0.04;
-    fireLight.intensity = fireLight.userData.base * f; fireGlow.material.rotation = t * 0.2;
-  } };
-}
-const _v = new THREE.Vector3();
 
 // =================================================================
 //  CONTROLS (touch joystick + look; keyboard on computers)
@@ -701,8 +932,8 @@ const input = { mx: 0, my: 0, run: false, lookDX: 0, lookDY: 0, lastLook: -10 };
   $('runBtn').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); input.run = !input.run; $('runBtn').classList.toggle('on', input.run); });
   $('dayBtn').addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();
-    $('fade').style.opacity = 1;
-    setTimeout(() => { setNight(!sky.isNight); $('fade').style.opacity = 0; showBanner(sky.isNight ? 'Night falls' : 'Morning', sky.isNight ? 'Your headlamp is on. Head for the campfire glow.' : 'Clear skies over the Garhwal Himalaya.', 3); }, 350);
+    const next = MODES[(MODES.indexOf(sky.mode) + 1) % MODES.length];
+    setTimeOfDay(next); showBanner(TOD[next].label + ' ' + TOD[next].title, TOD[next].text, 3);
   });
   const keys = {};
   addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyN') $('dayBtn').dispatchEvent(new Event('pointerdown')); });
@@ -747,62 +978,178 @@ const sound = {
 };
 
 // =================================================================
+//  CAMPFIRE FLAMES (animated shader) + embers
+// =================================================================
+const FLAME_VS = `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }`;
+const FLAME_FS = `
+  uniform float uTime, uSeed, uBright; varying vec2 vUv;
+  float h( vec2 p ) { return fract( sin( dot( p, vec2( 127.1, 311.7 ) ) ) * 43758.5453 ); }
+  float n( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+    return mix( mix( h( i ), h( i + vec2( 1, 0 ) ), f.x ), mix( h( i + vec2( 0, 1 ) ), h( i + vec2( 1, 1 ) ), f.x ), f.y ); }
+  float fbm( vec2 p ) { float v = 0.0, a = 0.5; for ( int i = 0; i < 4; i++ ) { v += a * n( p ); p *= 2.1; a *= 0.5; } return v; }
+  void main() {
+    vec2 uv = vUv;
+    float q = fbm( vec2( uv.x * 3.0 + uSeed, uv.y * 2.4 - uTime * 2.3 ) );
+    float w = ( 1.0 - uv.y ) * 0.42 + 0.03;
+    float dx = abs( uv.x - 0.5 + ( q - 0.5 ) * 0.35 * uv.y );
+    float shape = smoothstep( w, w * 0.25, dx ) * smoothstep( 1.0, 0.2, uv.y + ( q - 0.5 ) * 0.6 ) * smoothstep( 0.0, 0.06, uv.y );
+    float heat = clamp( shape * ( 1.3 - uv.y * 0.7 ) * ( 0.75 + q * 0.5 ), 0.0, 1.0 );
+    vec3 col = mix( vec3( 0.85, 0.12, 0.02 ), vec3( 1.0, 0.5, 0.06 ), smoothstep( 0.1, 0.45, heat ) );
+    col = mix( col, vec3( 1.0, 0.9, 0.55 ), smoothstep( 0.55, 0.95, heat ) );
+    gl_FragColor = vec4( col * heat * uBright, 1.0 );
+  }`;
+let glowTex = null;
+function makeFlames(parent, w0) {
+  const g = new THREE.Group(); parent.add(g);
+  const w = w0 * 0.75, hgt = w0 * 1.15, mats = [];
+  for (let i = 0; i < 3; i++) {
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uSeed: { value: i * 7.13 + Math.random() * 9 }, uBright: { value: 1.6 - i * 0.25 } },
+      vertexShader: FLAME_VS, fragmentShader: FLAME_FS, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false, fog: false,
+    });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w * (1 - i * 0.18), hgt * (1 - i * 0.12)).translate(0, hgt * (1 - i * 0.12) / 2, 0), mat);
+    m.position.y = w0 * 0.08; m.userData.offset = (i - 1) * 0.6; m.renderOrder = 10; g.add(m); mats.push(mat);
+  }
+  const N = 40, pos = new Float32Array(N * 3), rnd = new Float32Array(N);
+  for (let i = 0; i < N; i++) { pos[i * 3] = (Math.random() - 0.5) * w * 0.6; pos[i * 3 + 2] = (Math.random() - 0.5) * w * 0.6; rnd[i] = Math.random(); }
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); eg.setAttribute('aR', new THREE.BufferAttribute(rnd, 1));
+  const emat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uPR: { value: 1 } },
+    vertexShader: `uniform float uTime, uPR; attribute float aR; varying float vL;
+      void main() { float t = fract( uTime * ( 0.25 + aR * 0.3 ) + aR ); vL = 1.0 - t;
+        vec3 p = position; p.y += t * 3.2; p.x += sin( uTime * 2.0 + aR * 20.0 ) * 0.25 * t; p.z += cos( uTime * 1.7 + aR * 13.0 ) * 0.25 * t;
+        vec4 mv = modelViewMatrix * vec4( p, 1.0 ); gl_Position = projectionMatrix * mv; gl_PointSize = uPR * 84.0 * vL / max( 1.0, -mv.z ); }`,
+    fragmentShader: `varying float vL; void main() { float d = length( gl_PointCoord - 0.5 ); if ( d > 0.5 ) discard; gl_FragColor = vec4( vec3( 1.0, 0.55, 0.15 ) * vL * ( 1.0 - d * 2.0 ) * 2.0, 1.0 ); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, fog: false,
+  });
+  const embers = new THREE.Points(eg, emat); embers.frustumCulled = false; embers.position.y = w0 * 0.2; g.add(embers);
+  if (!glowTex) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const ctx = cv.getContext('2d'), grd = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,170,80,1)'); grd.addColorStop(1, 'rgba(255,120,40,0)'); ctx.fillStyle = grd; ctx.fillRect(0, 0, 64, 64);
+    glowTex = new THREE.CanvasTexture(cv);
+  }
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false, opacity: 0.3 }));
+  glow.scale.setScalar(w0 * 3.2); glow.position.y = w0 * 0.4; g.add(glow); fireGlows.push(glow);
+  const wp = new THREE.Vector3();
+  return { group: g, tick: (t) => {
+    if (g.getWorldPosition(wp).distanceToSquared(camera.position) > 250 * 250) return;   // far away: don't bother animating
+    for (const m of mats) m.uniforms.uTime.value = t;
+    emat.uniforms.uTime.value = t; emat.uniforms.uPR.value = renderer.getPixelRatio();
+    for (const c of g.children) if (c.isMesh && c.userData.offset !== undefined) c.rotation.y = Math.atan2(camera.position.x - wp.x, camera.position.z - wp.z) + c.userData.offset;
+    glow.material.rotation = t * 0.2;
+  } };
+}
+
+// wooden signpost with painted text
+function makeSign(line1, line2, color = '#f3e6c8') {
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 192;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#5b3f29'; c.fillRect(0, 0, 512, 192); c.fillStyle = '#6d4d33'; for (let i = 0; i < 6; i++) c.fillRect(0, i * 34 + 8, 512, 3);
+  c.strokeStyle = '#3b2819'; c.lineWidth = 10; c.strokeRect(5, 5, 502, 182);
+  c.fillStyle = color; c.textAlign = 'center'; c.font = 'bold 50px Georgia, serif'; c.fillText(line1, 256, 88, 470);
+  c.font = '38px Georgia, serif'; c.fillText(line2, 256, 148, 470);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x5a3e2a, roughness: 0.95 });
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 2.3, 7), wood); post.position.y = 1.15; post.castShadow = true;
+  const board = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 0.06), [wood, wood, wood, wood, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 }), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 })]);
+  board.position.y = 2.0; board.castShadow = true;
+  g.add(post, board); return g;
+}
+
+// strings of Tibetan prayer flags (all strings share one instanced mesh)
+const flagLines = [];
+function addFlagLine(pA, pB, sag = 0.9, n = 0) {
+  const L = pA.distanceTo(pB), count = n || Math.max(6, Math.round(L / 0.75));
+  for (let i = 0; i < count; i++) { const t = (i + 0.5) / count, p = new THREE.Vector3().lerpVectors(pA, pB, t); p.y -= Math.sin(t * Math.PI) * sag; flagLines.push({ p, yaw: Math.atan2(pB.x - pA.x, pB.z - pA.z) - Math.PI / 2, k: flagLines.length }); }
+  const rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pA, ...Array.from({ length: 9 }, (_, i) => { const t = (i + 1) / 10, p = new THREE.Vector3().lerpVectors(pA, pB, t); p.y -= Math.sin(t * Math.PI) * sag; return p; }), pB]),
+    new THREE.LineBasicMaterial({ color: 0x3b3b3b })); scene.add(rope);
+}
+function finishFlags() {
+  const cols = [0x2f6fd6, 0xf2f2f2, 0xd63a2f, 0x2f9e57, 0xf2c230];
+  const flags = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.34, 0.42).translate(0, -0.21, 0), new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.9 }), flagLines.length);
+  flagLines.forEach((f, i) => flags.setColorAt(i, new THREE.Color(cols[i % 5])));
+  flags.frustumCulled = false; scene.add(flags);
+  const fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fe = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
+  ticks.push(t => { flagLines.forEach((f, i) => { fe.set(Math.sin(t * 3 + i * 0.9) * 0.35, f.yaw, 0); fm.compose(f.p, fq.setFromEuler(fe), one); flags.setMatrixAt(i, fm); }); flags.instanceMatrix.needsUpdate = true; });
+}
+const poleMat = () => poleMat.m || (poleMat.m = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 1 }));
+function addPole(x, z, h = 4.2) {
+  const y = heightAt(x, z), pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, h, 6), poleMat());
+  pole.position.set(x, y + h / 2, z); pole.castShadow = true; scene.add(pole); addCollider(x, z, 0.3);
+  return new THREE.Vector3(x, y + h - 0.1, z);
+}
+
+// =================================================================
 //  BUILD THE WORLD
 // =================================================================
 const colGrid = new Map();
-function addCollider(x, z, r) { const k = Math.floor(x / 8) + ',' + Math.floor(z / 8); if (!colGrid.has(k)) colGrid.set(k, []); colGrid.get(k).push({ x, z, r }); }
-const lodSets = [], ticks = [];
-let player, mixer, actions = null, checkpoint, campfirePos = new THREE.Vector3(), heroRock = null;
+function addCollider(x, z, r, cr = 0) {   // r = blocks the trekker, cr = blocks the camera
+  for (const k of new Set([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => Math.floor((x + a * cr) / 8) + ',' + Math.floor((z + b * cr) / 8)))) {
+    if (!colGrid.has(k)) colGrid.set(k, []); colGrid.get(k).push({ x, z, r, cr });
+  }
+}
+const lodSets = [], ticks = [], heroRocks = [], campProps = [];
+let player, mixer, actions = null;
 
 async function build() {
   const keys = Object.keys(FILES).filter(k => !Q.skip.includes(k));
   totalMB = keys.reduce((s, k) => s + SIZES[k], 0);
   $('status').textContent = 'Downloading your assets…';
-  const [traveler, tentG, fireG, mountainG, firG, pineG, formG, rockG, hdrDay, hdrNight, tColor, tNormal] = await Promise.all([
+  const [traveler, tentG, fireG, mountainG, firG, pineG, formG, rockG, hdrDay, hdrNight, tColor, tNormal, trColor, trNormal] = await Promise.all([
     load('traveler', 'gltf'), load('tent', 'gltf'), load('campfire', 'gltf'), load('mountain', 'gltf'), load('firTrees', 'gltf'),
     load('snowPines', 'gltf'), load('rockFormation', 'gltf'), load('rock', 'gltf'), load('skyDay', 'hdr'), load('skyNight', 'hdr'),
-    load('snowColor', 'tex'), load('snowNormal', 'tex'),
+    load('snowColor', 'tex'), load('snowNormal', 'tex'), load('trailColor', 'tex'), load('trailNormal', 'tex'),
   ]);
   const missingRequired = REQUIRED.filter(k => !report[k] || !report[k].ok);
   if (Object.values(report).some(r => !r.ok)) showReport(missingRequired.length > 0);
   if (missingRequired.length) return false;
-  $('status').textContent = 'Building the valley…';
+  $('status').textContent = 'Shaping the mountain…';
   await new Promise(r => setTimeout(r, 50));
 
-  // ----- sky + lights -----
+  // ----- lights + sky -----
   const pmrem = new THREE.PMREMGenerator(renderer);
-  if (hdrDay) { hdrDay.mapping = THREE.EquirectangularReflectionMapping; sky.day = hdrDay; sky.dayEnv = pmrem.fromEquirectangular(hdrDay).texture; }
-  if (hdrNight) { hdrNight.mapping = THREE.EquirectangularReflectionMapping; sky.night = hdrNight; sky.nightEnv = pmrem.fromEquirectangular(hdrNight).texture; }
+  if (hdrDay) { hdrDay.mapping = THREE.EquirectangularReflectionMapping; sky.dayEnv = pmrem.fromEquirectangular(hdrDay).texture; hdrDay.dispose(); }
+  if (hdrNight) { hdrNight.mapping = THREE.EquirectangularReflectionMapping; sky.nightEnv = pmrem.fromEquirectangular(hdrNight).texture; hdrNight.dispose(); }
   pmrem.dispose();
   hemi = new THREE.HemisphereLight(0xbcd2f0, 0xe6e2dc, 0.5); scene.add(hemi);
   sun = new THREE.DirectionalLight(0xfff0dc, 3.2);
   sun.castShadow = true; sun.shadow.mapSize.set(Q.shadow, Q.shadow);
-  Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 220 });
+  Object.assign(sun.shadow.camera, { left: -28, right: 28, top: 28, bottom: -28, near: 1, far: 260 });
   sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.04;
   scene.add(sun, sun.target);
   headlamp = new THREE.SpotLight(0xfff4dd, 0, 30, 0.55, 0.5, 1.5);
+  fireLight = new THREE.PointLight(0xff8a3d, 14, 24, 2); fireLight.userData.base = 14; scene.add(fireLight);   // one light, moved to the nearest campfire
+  skyDome = makeSkyDome(); scene.add(skyDome);
+  ticks.push(t => { skyDome.position.copy(camera.position); skyDome.material.uniforms.uTime.value = t; });
 
-  // ----- ground + horizon -----
-  scene.add(makeTerrain(tColor, tNormal));
-  scene.add(makeRingMountains());
+  // ----- the mountain -----
+  scene.add(makeTerrain(tColor, tNormal, trColor, trNormal));
+  await new Promise(r => setTimeout(r, 0));
+  scene.add(makeFarTerrain(!!mountainG));
   if (mountainG) {
     shrinkTextures(mountainG.scene, Q.texMax * 2);
-    mountainG.scene.traverse(o => { if (o.isMesh) { const m = toStandard(o.material); m.roughness = 0.95; applyHaze(m, 0.16); o.material = m; o.frustumCulled = false; } });
-    const holder = fitModel(mountainG.scene, 2800, 'width');
-    holder.position.set(1150, 70, -2200); scene.add(holder);
+    mountainG.scene.traverse(o => { if (o.isMesh) { const m = toStandard(o.material); m.side = THREE.FrontSide; m.roughness = 0.95; applyHaze(m, 0.6); o.material = m; o.frustumCulled = false; } });
+    const holder = fitModel(mountainG.scene, MTN.width, 'width');
+    holder.position.set(MTN.x, mountainHeight(MTN.x, MTN.z) * 0.3 - 60, MTN.z); scene.add(holder);
   }
+  const juda = places[1];
   const ice = new THREE.Mesh(new THREE.CircleGeometry(LAKE.radius + 1.5, 48).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0xbfd6e8, roughness: 0.1, metalness: 0 }));
-  ice.position.set(LAKE.x, lakeH - 0.25, LAKE.z); ice.receiveShadow = true; scene.add(ice);
+  ice.position.set(LAKE.x, juda.y - 0.25, LAKE.z); ice.receiveShadow = true; scene.add(ice);
 
+  $('status').textContent = 'Planting the forest…';
+  await new Promise(r => setTimeout(r, 0));
   const S = scatter(), rng = makeRng(99);
 
-  // ----- fir forest (LOD1 near, LOD2 mid, LOD3 billboards far) -----
+  // ----- fir forest: LOD1 near, LOD2 mid, LOD3 billboards far -----
   let kinds = [];
   if (firG) {
     shrinkTextures(firG.scene, Q.texMax);
     const cache = new Map();
-    const conv = m => { if (!cache.has(m)) { const leaf = /Brunch|Billboard/i.test(m.name); const s = toStandard(m, leaf); if (/Brunch/i.test(m.name)) applySnowCover(s, 0.6, 0.45, 0.92); cache.set(m, s); } return cache.get(m); };
+    const conv = m => { if (!cache.has(m)) { const leaf = /Brunch|Billboard/i.test(m.name); const s = toStandard(m, leaf); if (/Brunch/i.test(m.name)) applySnowCover(s, 0.62, 0.42, 0.9); cache.set(m, s); } return cache.get(m); };
     const roots = []; firG.scene.traverse(o => { if (/^(Large|Medium|Small)[ _]tree_\d+$/.test(o.name)) roots.push(o); });
     for (const r of roots) {
       const lods = [1, 2, 3].map(n => r.children.find(c => c.name.endsWith('_LOD' + n))).filter(Boolean).map(n => bakeParts(n, conv));
@@ -810,27 +1157,31 @@ async function build() {
       const h = normalizeLods(lods, r.name.startsWith('Large') ? 15 : r.name.startsWith('Medium') ? 11 : 7.5);
       kinds.push({ lods, h });
     }
-    firG.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });   // free the unused full-detail copies
+    firG.scene.traverse(o => { if (o.isMesh) o.geometry.dispose(); });
   }
   if (!kinds.length) throw new Error('The fir tree file loaded, but no trees were found inside it (expected nodes named "Large tree_1" etc.).');
-  const per = kinds.map(() => []); for (const t of S.trees) per[Math.floor(rng() * kinds.length)].push(t);
+  const per = kinds.map(() => []), perFar = kinds.map(() => []);
+  for (const t of S.trees) per[Math.floor(rng() * kinds.length)].push(t);
+  for (const t of S.farTrees) perFar[Math.floor(rng() * kinds.length)].push(t);
   kinds.forEach((k, i) => {
     const d = k.lods.length === 3 ? [Q.lod1, Q.lod2, 1e5] : k.lods.length === 2 ? [Q.lod2, 1e5] : [1e5];
-    const set = new InstancedLOD(k.lods.map((parts, li) => ({ dist: d[li], parts })), per[i], { radius: k.h * 0.55, centerY: k.h * 0.5 });
+    const set = new InstancedLOD(k.lods.map((parts, li) => ({ dist: d[li], parts })), per[i], { radius: k.h * 0.55, centerY: k.h * 0.5, maxDist: 900 });
     scene.add(set.group); lodSets.push(set);
+    const far = new InstancedLOD([{ dist: 1e5, parts: k.lods[k.lods.length - 1] }], perFar[i], { radius: k.h * 0.55, centerY: k.h * 0.5, maxDist: 1100, shadowLod: -1 });
+    scene.add(far.group); lodSets.push(far);
   });
-  for (const t of S.trees) addCollider(t.x, t.z, 0.45 * t.scale);
+  for (const t of S.trees) addCollider(t.x, t.z, 0.45 * t.scale, 2.7 * t.scale);
 
-  // ----- snowy pines + bushes -----
+  // ----- snowy young pines + bushes -----
   if (pineG) {
     shrinkTextures(pineG.scene, Q.texMax);
-    const conv = m => { const s = toStandard(m); s.roughness = 0.9; return s; };
+    const conv = m => { const s = toStandard(m); s.roughness = 0.92; s.color.multiplyScalar(0.82); return s; };
     const found = {}; pineG.scene.traverse(o => { if (/^(SnowTree1|SnowTree2|BushBare1)$/.test(o.name)) found[o.name] = o; });
     const trees = ['SnowTree1', 'SnowTree2'].filter(n => found[n]).map(n => { const l = [bakeParts(found[n], conv)]; normalizeLods(l, 5.5); return l; });
     if (trees.length) {
       const pp = trees.map(() => []); for (const t of S.saplings) pp[Math.floor(rng() * trees.length)].push(t);
-      trees.forEach((l, i) => { const s = new InstancedLOD([{ dist: 1e5, parts: l[0] }], pp[i], { radius: 3.5, centerY: 2.8, maxDist: 190 }); scene.add(s.group); lodSets.push(s); });
-      for (const t of S.saplings) addCollider(t.x, t.z, 0.35 * t.scale);
+      trees.forEach((l, i) => { const s = new InstancedLOD([{ dist: 1e5, parts: l[0] }], pp[i], { radius: 3.5, centerY: 2.8, maxDist: 220 }); scene.add(s.group); lodSets.push(s); });
+      for (const t of S.saplings) addCollider(t.x, t.z, 0.35 * t.scale, 1.3 * t.scale);
     }
     if (found.BushBare1) {
       const l = [bakeParts(found.BushBare1, conv)]; normalizeLods(l, 1.1);
@@ -838,65 +1189,82 @@ async function build() {
     }
   }
 
-  // ----- rocks -----
+  // ----- rocks, boulders and stone cairns (your snowy rock model) -----
   if (rockG) {
-  shrinkTextures(rockG.scene, Q.texMax); const l = [bakeParts(rockG.scene, m => toStandard(m))]; normalizeLods(l, 1, true); const rockParts = l[0];
-  const big = new InstancedLOD([{ dist: 1e5, parts: rockParts }], S.bigRocks, { radius: 0.8, centerY: 0.4, maxDist: 220 });
-  const small = new InstancedLOD([{ dist: 1e5, parts: rockParts }], S.smallRocks, { radius: 0.8, centerY: 0.4, maxDist: 70 });
-  scene.add(big.group, small.group); lodSets.push(big, small);
-  for (const r of S.bigRocks) addCollider(r.x, r.z, 0.42 * r.scale);
+    shrinkTextures(rockG.scene, Q.texMax); const l = [bakeParts(rockG.scene, m => toStandard(m))]; normalizeLods(l, 1, true); const rp = l[0];
+    const rpLow = simplifyParts(rp, 14);
+    console.log('[lod] rock', rp.reduce((a, p) => a + p.geometry.index.count / 3, 0), '→', rpLow.reduce((a, p) => a + p.geometry.index.count / 3, 0), 'triangles');
+    const lodsFor = near => [{ dist: near, parts: rp }, { dist: 1e5, parts: rpLow }];
+    const sets = [[S.bigRocks, Q.rockDist * 1.6, 28], [S.smallRocks, 60, 5], [S.trailBoulders, Q.rockDist * 1.3, 22], [S.cairns, 110, 8]]
+      .map(([items, md, near]) => new InstancedLOD(lodsFor(near), items, { radius: 0.8, centerY: 0.4, maxDist: md }));
+    for (const s of sets) { scene.add(s.group); lodSets.push(s); }
+    for (const r of S.bigRocks) addCollider(r.x, r.z, 0.42 * r.scale, 0.5 * r.scale);
+    for (const r of S.trailBoulders) if (r.scale > 0.9) addCollider(r.x, r.z, 0.42 * r.scale, 0.5 * r.scale);
+    for (let i = 0; i < S.cairns.length; i += 3) addCollider(S.cairns[i].x, S.cairns[i].z, 0.45, 0.5);
   }
-  // big scanned rock formation as a landmark beside the trail (Full mode only)
+  // your scanned stone formation: an old shepherd's wall beside the trail and Base Camp's windbreak (Full mode)
   if (formG) {
     shrinkTextures(formG.scene, Q.texMax);
-    formG.scene.traverse(o => { if (o.isMesh) { o.material = toStandard(o.material); o.receiveShadow = true; } });
-    heroRock = fitModel(formG.scene, 16, 'width');
-    const hx = 30, hz = -56; heroRock.position.set(hx, heightAt(hx, hz) - 1.2, hz); heroRock.rotation.y = 0.7;
-    scene.add(heroRock); addCollider(hx, hz, 6.5);
+    formG.scene.traverse(o => { if (o.isMesh) { o.material = toStandard(o.material); o.castShadow = o.receiveShadow = true; } });
+    const proto = fitModel(formG.scene, 9, 'width');
+    const protoLow = proto.clone(true);
+    protoLow.traverse(o => { if (o.isMesh) { const [lp] = simplifyParts([{ geometry: o.geometry, material: o.material }], 60); o.geometry = lp.geometry; } });
+    const spots = [];
+    const along = (i, off) => { const [px, pz] = trail.pts[i], [qx, qz] = trail.pts[i + 2], tx = qx - px, tz = qz - pz, L = Math.hypot(tx, tz); return { x: px + tz / L * off, z: pz - tx / L * off, rot: Math.atan2(tx, tz) + Math.PI / 2 }; };
+    spots.push(along(Math.round(trail.pts.length * 0.22), 7), along(Math.round(trail.pts.length * 0.58), -8));
+    spots.push({ x: CAMPS[2].x - 13, z: CAMPS[2].z - 8, rot: 0.6 });
+    for (const sp of spots) {
+      for (const [src, near] of [[proto, true], [protoLow, false]]) {
+        const w = src.clone(); w.position.set(sp.x, Math.min(heightAt(sp.x - 3, sp.z), heightAt(sp.x + 3, sp.z), heightAt(sp.x, sp.z - 3), heightAt(sp.x, sp.z + 3)) - 0.6, sp.z); w.rotation.y = sp.rot; w.userData.near = near;
+        scene.add(w); heroRocks.push(w);
+      }
+      for (let k = -1; k <= 1; k++) addCollider(sp.x + Math.cos(sp.rot) * k * 3, sp.z - Math.sin(sp.rot) * k * 3, 2.2, 2.4);
+    }
   }
 
-  // ----- campsite -----
-  const campY = heightAt(CAMP.x, CAMP.z);
-  const tentSpots = [[-9, 4], [-7, -7], [3, -10], [9, 3], [-2, 10]];
-  let tentProto = null;
+  // ----- camps along the route -----
+  let tentProto = null, fireProto = null;
   if (tentG) { shrinkTextures(tentG.scene, Q.texMax); tentG.scene.traverse(o => { if (o.isMesh) { o.material = toStandard(o.material); o.castShadow = o.receiveShadow = true; } }); tentProto = fitModel(tentG.scene, 3.0, 'width'); }
-  if (tentProto) for (const [ox, oz] of tentSpots) {
-    const t = tentProto.clone(), x = CAMP.x + ox, z = CAMP.z + oz;
-    t.position.set(x, heightAt(x, z) - 0.05, z); t.rotation.y = Math.atan2(-ox, -oz) + Math.PI; scene.add(t); addCollider(x, z, 1.5);
+  if (fireG) { shrinkTextures(fireG.scene, Q.texMax); fireG.scene.traverse(o => { if (o.isMesh) { o.material = toStandard(o.material); o.castShadow = true; } }); fireProto = fitModel(fireG.scene, 1.3, 'width'); }
+  const campLayouts = [
+    { tents: [[-12, 4], [-6, -8], [6, 9]], fire: [-2, 2] },                              // Sankri
+    { tents: [[-9, 4], [-7, -7], [3, -10], [9, 3], [-2, 10]], fire: [0, 0] },             // Juda Ka Talab
+    { tents: [[-8, 5], [5, -9], [9, 4], [-4, -10]], fire: [0, 0] },                      // Base Camp
+  ];
+  campLayouts.forEach((L, ci) => {
+    const c = CAMPS[ci];
+    if (tentProto) for (const [ox, oz] of L.tents) {
+      const t = tentProto.clone(), x = c.x + ox, z = c.z + oz;
+      t.position.set(x, heightAt(x, z) - 0.05, z); t.rotation.y = Math.atan2(-ox, -oz) + Math.PI; scene.add(t); campProps.push(t); addCollider(x, z, 1.5, 1.6);
+    }
+    const fx = c.x + L.fire[0], fz = c.z + L.fire[1], root = new THREE.Group(); root.position.set(fx, heightAt(fx, fz), fz); scene.add(root);
+    if (fireProto) root.add(fireProto.clone());
+    ticks.push(makeFlames(root, 1.3).tick); fires.push(root.position); addCollider(fx, fz, 1.0);
+  });
+  // signposts at each place
+  places.forEach((pl, k) => {
+    const i = Math.min(pl.i + (k === 3 ? -14 : 24), trail.pts.length - 3), [px, pz] = trail.pts[i], [qx, qz] = trail.pts[i + 2];
+    const tx = qx - px, tz = qz - pz, L = Math.hypot(tx, tz), x = px - tz / L * 3.2, z = pz + tx / L * 3.2;
+    const s = makeSign(pl.name, pl.alt.toLocaleString('en-IN') + ' m'); s.position.set(x, heightAt(x, z) - 0.05, z); s.rotation.y = Math.atan2(tx, tz) + Math.PI; scene.add(s); addCollider(x, z, 0.3);
+  });
+  // prayer flags at Juda, Base Camp, the viewpoints and the summit
+  { const c = CAMPS[1]; addFlagLine(addPole(c.x - 12, c.z - 2), addPole(c.x + 4, c.z - 14)); }
+  { const c = CAMPS[2]; addFlagLine(addPole(c.x - 10, c.z + 10), addPole(c.x + 10, c.z + 12)); }
+  for (const f of [0.35, 0.82]) {   // viewpoints with flags across the trail
+    const i = Math.round(trail.pts.length * f), [px, pz] = trail.pts[i], [qx, qz] = trail.pts[i + 2], tx = qx - px, tz = qz - pz, L = Math.hypot(tx, tz);
+    addFlagLine(addPole(px - tz / L * 4, pz + tx / L * 4, 3.6), addPole(px + tz / L * 4, pz - tx / L * 4, 3.6), 0.6);
   }
-  campfirePos.set(CAMP.x + 1, campY, CAMP.z + 1);
-  const fireRoot = new THREE.Group(); fireRoot.position.copy(campfirePos); scene.add(fireRoot);
-  let fireWidth = 1.3;
-  if (fireG) {
-    shrinkTextures(fireG.scene, Q.texMax);
-    fireG.scene.traverse(o => { if (o.isMesh) { o.material = toStandard(o.material); o.castShadow = true; } });
-    fireRoot.add(fitModel(fireG.scene, fireWidth, 'width'));
-  }
+  { const s = places[3], cx = s.x + 6, cz = s.z - 5, top = addPole(cx, cz, 5.5);             // summit: flags radiating from a tall centre pole
+    for (let k = 0; k < 4; k++) { const a = k / 4 * Math.PI * 2 + 0.4; addFlagLine(top, addPole(cx + Math.cos(a) * 10, cz + Math.sin(a) * 10, 3.0), 0.5); } }
+  finishFlags();
+  // the nearest campfire gets the single flickering light
+  ticks.push(t => {
+    let best = fires[0], bd = 1e9; for (const f of fires) { const d = f.distanceToSquared(camera.position); if (d < bd) { bd = d; best = f; } }
+    fireLight.position.set(best.x, best.y + 0.8, best.z);
+    fireLight.intensity = fireLight.userData.base * (1 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.07 + Math.sin(t * 23.1) * 0.04);
+  });
 
-  const flames = makeFlames(fireRoot, fireWidth); ticks.push(flames.tick);
-  addCollider(campfirePos.x, campfirePos.z, 1.0);
-
-  // prayer flags
-  const pA = new THREE.Vector3(CAMP.x - 12, 0, CAMP.z - 2), pB = new THREE.Vector3(CAMP.x + 4, 0, CAMP.z - 14);
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 1 });
-  for (const p of [pA, pB]) { p.y = heightAt(p.x, p.z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 4.2, 6), poleMat); pole.position.set(p.x, p.y + 2.1, p.z); pole.castShadow = true; scene.add(pole); addCollider(p.x, p.z, 0.3); }
-  const NF = 22, cols = [0x2f6fd6, 0xf2f2f2, 0xd63a2f, 0x2f9e57, 0xf2c230];
-  const flags = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.34, 0.42).translate(0, -0.21, 0), new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.9 }), NF);
-  const fb = []; for (let i = 0; i < NF; i++) { const t = (i + 0.5) / NF, p = new THREE.Vector3().lerpVectors(pA, pB, t); p.y = lerp(pA.y, pB.y, t) + 4.1 - Math.sin(t * Math.PI) * 0.9; fb.push(p); flags.setColorAt(i, new THREE.Color(cols[i % 5])); }
-  scene.add(flags);
-  const yaw = Math.atan2(pB.x - pA.x, pB.z - pA.z) - Math.PI / 2, fm = new THREE.Matrix4(), fq = new THREE.Quaternion(), fe = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
-  ticks.push(t => { for (let i = 0; i < NF; i++) { fe.set(Math.sin(t * 3 + i * 0.9) * 0.35, yaw, 0); fm.compose(fb[i], fq.setFromEuler(fe), one); flags.setMatrixAt(i, fm); } flags.instanceMatrix.needsUpdate = true; });
-
-  // checkpoint beam
-  checkpoint = new THREE.Group(); checkpoint.position.set(CAMP.x - 4, campY, CAMP.z + 3);
-  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(1.5, 2.0, 40).rotateX(-Math.PI / 2), ringMat); ring.position.y = 0.08;
-  checkpoint.add(new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 60, 24, 1, true).translate(0, 30, 0), beamMat), ring);
-  scene.add(checkpoint);
-  ticks.push(t => { ringMat.opacity = 0.5 + Math.sin(t * 3) * 0.3; beamMat.opacity = state.done ? 0.03 : 0.12; });
-
-  // falling snow
+  // ----- falling snow -----
   const NS = Q === QUALITY.lite ? 700 : 1300, sp = new Float32Array(NS * 3), sr = new Float32Array(NS);
   for (let i = 0; i < NS; i++) { sp[i * 3] = Math.random() * 50; sp[i * 3 + 1] = Math.random() * 30; sp[i * 3 + 2] = Math.random() * 50; sr[i] = Math.random(); }
   const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3)); sg.setAttribute('aR', new THREE.BufferAttribute(sr, 1));
@@ -921,7 +1289,6 @@ async function build() {
     const clip = traveler.animations.find(a => /walk/i.test(a.name)) || traveler.animations[0];
     if (clip) {
       const walk = mixer.clipAction(clip); walk.play();
-      // standing pose = blend of two "feet together" moments of the walk
       const idleA = mixer.clipAction(clip.clone()), idleB = mixer.clipAction(clip.clone());
       for (const [a, tm] of [[idleA, 0.667], [idleB, 0.167]]) { a.play(); a.time = Math.min(tm, clip.duration); a.timeScale = 0; }
       actions = { walk, idleA, idleB, dur: clip.duration };
@@ -931,7 +1298,10 @@ async function build() {
     player = fitModel(model, PLAYER.height, 'height');
     model.rotation.y += PLAYER.yawOffset;
   }
-  player.position.set(START.x, START.y, START.z);
+  // start on the trail at Sankri, facing up the path
+  const s0 = 30, [ax, az] = trail.pts[s0], [bx, bz] = trail.pts[s0 + 10];
+  player.position.set(ax, heightAt(ax, az), az);
+  state.facing = Math.atan2(bx - ax, bz - az); state.yaw = state.facing + Math.PI; state.trailI = s0;
   scene.add(player);
   headlamp.position.set(0, 1.65, 0.15); headlamp.target.position.set(0, 0.6, 6);
   player.add(headlamp, headlamp.target);
@@ -945,16 +1315,18 @@ function setWeights(w) {
 // =================================================================
 //  GAME LOOP
 // =================================================================
-const state = { stamina: 100, tired: false, yaw: 0, pitch: 0.3, camDist: 5.2, facing: Math.PI, speed: 0, walkW: 0, startTime: 0, done: false, lastStep: 0 };
+const state = { stamina: 100, tired: false, yaw: 0, pitch: 0.28, camDist: 5.2, facing: Math.PI, speed: 0, walkW: 0, startTime: 0, lastStep: 0,
+  trailI: 0, reached: new Set(['sankri']) };
 const frustum = new THREE.Frustum(), pv = new THREE.Matrix4(), camTarget = new THREE.Vector3(), camWant = new THREE.Vector3();
 const lastLodPos = new THREE.Vector3(1e9, 0, 0), lastLodQ = new THREE.Quaternion();
 const fmt = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 function showBanner(title, text, secs = 5) { $('bTitle').textContent = title; $('bText').textContent = text; $('banner').classList.add('show'); clearTimeout(showBanner.t); showBanner.t = setTimeout(() => $('banner').classList.remove('show'), secs * 1000); }
+const MARGIN = 14;   // invisible wall this far inside the detailed mountain area
 
 function updatePlayer(dt, t) {
   input.readKeys();
   if (input.lookDX || input.lookDY) {
-    state.yaw -= input.lookDX * 0.0062; state.pitch = Math.max(-0.15, Math.min(1.15, state.pitch + input.lookDY * 0.0042));
+    state.yaw -= input.lookDX * 0.0062; state.pitch = Math.max(-0.2, Math.min(1.15, state.pitch + input.lookDY * 0.0042));
     input.lookDX = input.lookDY = 0; input.lastLook = t;
   }
   const mag = Math.min(1, Math.hypot(input.mx, input.my));
@@ -962,91 +1334,133 @@ function updatePlayer(dt, t) {
   let dz = -Math.cos(state.yaw) * input.my - Math.sin(state.yaw) * input.mx;
   const dl = Math.hypot(dx, dz), p = player.position;
   const wantsRun = input.run && mag > 0.3 && !state.tired;
+  let up = 0;
   if (dl > 0.01) {
     dx /= dl; dz /= dl;
-    const up = Math.max(0, (heightAt(p.x + dx * 0.8, p.z + dz * 0.8) - heightAt(p.x, p.z)) / 0.8);
-    const target = (wantsRun ? PLAYER.run : PLAYER.walk) * Math.max(0.35, mag) * (1 - Math.min(0.45, up * 0.9));
+    up = (heightAt(p.x + dx * 0.8, p.z + dz * 0.8) - heightAt(p.x, p.z)) / 0.8;       // slope ahead (+ uphill, − downhill)
+    const climb = Math.max(0, up);
+    const target = (wantsRun ? PLAYER.run : PLAYER.walk) * Math.max(0.35, mag) * (1 - Math.min(0.5, climb * 0.9)) * (up < -0.15 ? 0.9 : 1);
     state.speed += (target - state.speed) * Math.min(1, dt * 6);
     let diff = Math.atan2(dx, dz) - state.facing; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     state.facing += diff * Math.min(1, dt * 10);
     if (t - input.lastLook > 1.5 && input.my > 0.4) { let d = Math.atan2(-dx, -dz) - state.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); state.yaw += d * Math.min(1, dt * 0.9); }
-    state.stamina += wantsRun ? -PLAYER.drain * (1 + up * 1.5) * dt : PLAYER.regenWalk * dt;
+    state.stamina += wantsRun ? -PLAYER.drain * (1 + climb * 1.5) * dt : PLAYER.regenWalk * (1 - Math.min(1, climb * 2.5)) * dt;
     state.mx = dx; state.mz = dz;
   } else {
     state.speed += -state.speed * Math.min(1, dt * 8); state.stamina += PLAYER.regenIdle * dt;
   }
-  if (state.speed > 0.01 && state.mx !== undefined) { p.x += state.mx * state.speed * dt; p.z += state.mz * state.speed * dt; }
+  if (state.speed > 0.01 && state.mx !== undefined) {
+    const nx = p.x + state.mx * state.speed * dt, nz = p.z + state.mz * state.speed * dt;
+    const rise = heightAt(nx, nz) - heightAt(p.x, p.z), run = Math.hypot(nx - p.x, nz - p.z) || 1e-6;
+    if (rise / run < 1.05) { p.x = nx; p.z = nz; }                                       // cliffs steeper than ~46° can't be climbed
+    else state.speed *= 0.5;
+  }
   state.stamina = Math.max(0, Math.min(100, state.stamina));
   if (state.stamina <= 0 && !state.tired) { state.tired = true; showBanner('Out of breath', 'Walk slowly to recover — the air is thin up here.', 3); }
   if (state.tired && state.stamina > 35) state.tired = false;
-  // collisions
+  // collisions with trees, rocks, tents
   const gx = Math.floor(p.x / 8), gz = Math.floor(p.z / 8);
   for (let ix = gx - 1; ix <= gx + 1; ix++) for (let iz = gz - 1; iz <= gz + 1; iz++) {
     const list = colGrid.get(ix + ',' + iz); if (!list) continue;
     for (const c of list) { const ex = p.x - c.x, ez = p.z - c.z, d = Math.hypot(ex, ez), m = c.r + 0.35; if (d < m && d > 1e-4) { p.x = c.x + ex / d * m; p.z = c.z + ez / d * m; } }
   }
-  const cx = p.x - WORLD.cx, cz = p.z - WORLD.cz, cr = Math.hypot(cx, cz);
-  if (cr > WORLD.playRadius) { p.x = WORLD.cx + cx / cr * WORLD.playRadius; p.z = WORLD.cz + cz / cr * WORLD.playRadius; }
+  p.x = Math.min(BOUNDS.maxX - MARGIN, Math.max(BOUNDS.minX + MARGIN, p.x));
+  p.z = Math.min(BOUNDS.maxZ - MARGIN, Math.max(BOUNDS.minZ + MARGIN, p.z));
   p.y += (heightAt(p.x, p.z) - 0.04 - p.y) * Math.min(1, dt * 20);   // stand on the snow
   player.rotation.y = state.facing;
-  // animation
+  // animation: walk speed matches movement; lean into steep climbs
   const moving = state.speed > 0.12;
   state.walkW += ((moving ? 1 : 0) - state.walkW) * Math.min(1, dt * 7);
   setWeights(state.walkW);
   if (actions) actions.walk.timeScale = Math.max(0.6, state.speed / 1.45);
   if (mixer) mixer.update(dt);
-  // footsteps
+  player.children[0].rotation.x = lerp(player.children[0].rotation.x, moving ? Math.max(-0.12, Math.min(0.18, up * 0.35)) : 0, Math.min(1, dt * 5));
   if (moving) { state.lastStep += dt * state.speed; if (state.lastStep > 0.75) { state.lastStep = 0; sound.burst(state.speed > 3 ? 0.45 : 0.3, 900 + Math.random() * 500, 0.16); } }
-  // fire crackle when near the camp
-  const fd = p.distanceTo(campfirePos); if (fd < 18 && Math.random() < dt * 6) sound.burst(Math.min(0.35, 2 / (fd + 2)), 3000 + Math.random() * 3000, 0.04);
-  // checkpoint
-  if (!state.done && Math.hypot(p.x - checkpoint.position.x, p.z - checkpoint.position.z) < 3.2) {
-    state.done = true; const time = (performance.now() - state.startTime) / 1000;
-    showBanner('⛺ Checkpoint reached', CAMP.name + ' · ' + fmt(time), 8);
+  let fd = 1e9; for (const f of fires) fd = Math.min(fd, p.distanceTo(f));
+  if (fd < 18 && Math.random() < dt * 6) sound.burst(Math.min(0.35, 2 / (fd + 2)), 3000 + Math.random() * 3000, 0.04);
+  // where am I on the trail? (used for navigation)
+  const ti = trailInfo(p.x, p.z); state.trailI = ti.i; state.offTrail = ti.d;
+  // arriving at a place
+  for (const pl of places) {
+    if (state.reached.has(pl.key)) continue;
+    if (Math.hypot(p.x - pl.x, p.z - pl.z) < (pl.key === 'summit' ? 9 : 16)) {
+      state.reached.add(pl.key);
+      const time = fmt((performance.now() - state.startTime) / 1000);
+      if (pl.key === 'summit') showBanner('🏔️ Kedarkantha Summit · 3,810 m', `You made it in ${time}. Try 🌅 to watch the sunrise from the top.`, 10);
+      else showBanner('📍 ' + pl.name, `${pl.alt.toLocaleString('en-IN')} m · ${time}. Next: ${nextPlace() ? nextPlace().name : ''}`, 6);
+    }
   }
 }
+const nextPlace = () => places.find(pl => !state.reached.has(pl.key));
+
 function updateCamera(dt) {
   const p = player.position; camTarget.set(p.x, p.y + 1.5, p.z);
   const d = state.camDist + (state.speed > PLAYER.walk + 0.5 ? 0.8 : 0);
   camWant.set(camTarget.x + Math.sin(state.yaw) * Math.cos(state.pitch) * d, camTarget.y + Math.sin(state.pitch) * d, camTarget.z + Math.cos(state.yaw) * Math.cos(state.pitch) * d);
-  camWant.y = Math.max(camWant.y, heightAt(camWant.x, camWant.z) + 0.6);
+  const steps = Math.ceil(d / 0.4);
+  for (let i = 1; i <= steps; i++) {                                    // don't put the camera inside trees or rocks
+    const t = i / steps, x = lerp(camTarget.x, camWant.x, t), z = lerp(camTarget.z, camWant.z, t);
+    const list = colGrid.get(Math.floor(x / 8) + ',' + Math.floor(z / 8)); let hit = false;
+    if (list) for (const c of list) if (c.cr && Math.hypot(x - c.x, z - c.z) < c.cr && Math.hypot(camTarget.x - c.x, camTarget.z - c.z) > c.cr) { hit = true; break; }
+    if (hit) { const k = Math.max(1.4 / d, t - 0.4 / d); camWant.lerpVectors(camTarget, camWant, k); break; }
+  }
+  // keep the camera above the slope (on steep ground, check a few points between player and camera)
+  for (let i = 1; i <= 4; i++) { const t = i / 4, x = lerp(camTarget.x, camWant.x, t), z = lerp(camTarget.z, camWant.z, t), y = lerp(camTarget.y, camWant.y, t), g = heightAt(x, z) + 0.6;
+    if (y < g) camWant.y += (g - y) / t; }
   camera.position.lerp(camWant, 1 - Math.exp(-dt * 10)); camera.lookAt(camTarget);
 }
 function updateSun() {
-  const p = player.position, texel = 56 / Q.shadow, x = Math.round(p.x / texel) * texel, z = Math.round(p.z / texel) * texel;
-  const dir = sky.isNight ? MOON_DIR : SUN_DIR;
-  sun.target.position.set(x, p.y, z); sun.position.set(x + dir.x * 120, p.y + dir.y * 120, z + dir.z * 120); sun.target.updateMatrixWorld();
+  const p = player.position, texel = 56 / Q.shadow, x = Math.round(p.x / texel) * texel, z = Math.round(p.z / texel) * texel, dir = todNow.sun;
+  sun.target.position.set(x, p.y, z); sun.position.set(x + dir.x * 150, p.y + Math.max(0.05, dir.y) * 150, z + dir.z * 150); sun.target.updateMatrixWorld();
 }
 function updateLods(force) {
   if (!force && camera.position.distanceToSquared(lastLodPos) < 0.04 && camera.quaternion.angleTo(lastLodQ) < 0.004) return;
   lastLodPos.copy(camera.position); lastLodQ.copy(camera.quaternion);
   camera.updateMatrixWorld(); pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pv);
   for (const s of lodSets) s.update(camera.position, frustum);
-  if (heroRock) heroRock.visible = camera.position.distanceTo(heroRock.position) < 260;
+  for (const h of heroRocks) { const d = camera.position.distanceTo(h.position); h.visible = h.userData.near ? d < 35 : d >= 35 && d < 160; }
+  for (const t of campProps) t.visible = camera.position.distanceTo(t.position) < 250;
 }
 function updateHUD() {
   const st = $('stam'); st.style.width = state.stamina.toFixed(1) + '%'; st.classList.toggle('tired', state.tired);
-  const p = player.position, cp = checkpoint.position;
+  const p = player.position;
   $('alt').textContent = altitudeAt(p.y).toLocaleString('en-IN') + ' m';
-  if (!state.done) $('timer').textContent = fmt((performance.now() - state.startTime) / 1000);
-  $('campDist').textContent = state.done ? 'Camp ✓' : Math.round(Math.hypot(cp.x - p.x, cp.z - p.z)) + ' m';
-  const rel = Math.atan2(cp.x - p.x, cp.z - p.z) - Math.atan2(-Math.sin(state.yaw), -Math.cos(state.yaw));
-  $('arrow').style.transform = `rotate(${-rel}rad)`;
+  $('timer').textContent = fmt((performance.now() - state.startTime) / 1000);
+  const np = nextPlace();
+  if (!np) { $('campDist').textContent = 'Summit ✓'; $('objective').textContent = '🏔️ Summit reached — enjoy the view'; $('arrow').style.opacity = 0.3; return; }
+  // distance along the trail if you're on it, straight-line distance if you've wandered off
+  const onTrail = state.offTrail < 25 && state.trailI <= np.i;
+  const dist = onTrail ? trail.s[np.i] - trail.s[state.trailI] + state.offTrail : Math.hypot(np.x - p.x, np.z - p.z);
+  $('campDist').textContent = dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m';
+  $('objective').textContent = (state.offTrail > 25 ? '↩︎ Back to the trail · ' : 'Next: ') + np.name;
+  // the arrow points along the trail ~30 m ahead (or straight back to the trail if you're lost)
+  let tx, tz;
+  if (state.offTrail > 25) { [tx, tz] = trail.pts[state.trailI]; }
+  else { [tx, tz] = trail.pts[Math.min(np.i, state.trailI + 60)]; }
+  const rel = Math.atan2(tx - p.x, tz - p.z) - Math.atan2(-Math.sin(state.yaw), -Math.cos(state.yaw));
+  $('arrow').style.transform = `rotate(${-rel}rad)`; $('arrow').style.opacity = 1;
 }
-const perf = { f: 0, t: 0, good: 0 };
+// Keeps the game smooth. iPhone Low Power Mode locks pages at 30 fps — lowering the
+// resolution cannot fix that, so if a lower resolution doesn't help, we put it back.
+const perf = { f: 0, t: 0, good: 0, trial: null, capped: false, hinted: false };
 function adapt(dt) {
   perf.f++; perf.t += dt; if (perf.t < 2) return;
   const fps = perf.f / perf.t; perf.f = perf.t = 0;
-  $('fps').textContent = Math.round(fps) + ' fps · ' + pixelRatio.toFixed(2) + 'x';
-  const maxPR = Math.min(devicePixelRatio || 1, Q.maxPixelRatio);
-  if (fps < 45 && pixelRatio > 0.85) { pixelRatio = Math.max(0.85, pixelRatio - 0.15); perf.good = 0; }
-  else if (fps > 57 && ++perf.good >= 3 && pixelRatio < maxPR) { pixelRatio = Math.min(maxPR, pixelRatio + 0.1); perf.good = 0; }
+  const maxPR = Math.min(devicePixelRatio || 1, Q.maxPixelRatio), minPR = 1.0;
+  if (perf.trial) { if (fps < perf.trial.fps + 4) { pixelRatio = perf.trial.pr; perf.capped = true; } perf.trial = null; }
+  else if (fps < 45 && !perf.capped && pixelRatio > minPR) { perf.trial = { fps, pr: pixelRatio }; pixelRatio = Math.max(minPR, pixelRatio - 0.2); perf.good = 0; }
+  else if (fps > 56) { perf.capped = false; if (++perf.good >= 3 && pixelRatio < maxPR) { pixelRatio = Math.min(maxPR, pixelRatio + 0.1); perf.good = 0; } }
+  else perf.good = 0;
+  if (fps < 22 && perf.capped && pixelRatio > minPR) perf.capped = false;
+  const lowPower = perf.capped && fps > 26 && fps < 34;
+  $('fps').textContent = Math.round(fps) + ' fps · ' + pixelRatio.toFixed(2) + 'x' + (lowPower ? ' · 30 fps limit (Low Power Mode?)' : '');
+  if (lowPower && !perf.hinted) { perf.hinted = true; showBanner('Tip', 'Turn off Low Power Mode for smoother 60 fps.', 4); }
   if (Math.abs(renderer.getPixelRatio() - pixelRatio) > 0.01) { renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight); }
 }
 let last = performance.now(), elapsed = 0;
 function loop() {
   const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now; elapsed += dt;
-  updatePlayer(dt, elapsed); updateCamera(dt); updateSun(); updateLods(false);
+  updatePlayer(dt, elapsed); updateCamera(dt); applyTimeOfDay(dt); updateSun(); updateLods(false);
   for (const f of ticks) f(elapsed);
   updateHUD(); adapt(dt);
   renderer.render(scene, camera);
@@ -1063,8 +1477,8 @@ async function begin(mode) {
   pixelRatio = Math.min(devicePixelRatio || 1, Q.pixelRatio); renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight);
   const ok = await build();
   if (!ok) return;
-  setNight(params.has('night'));
-  updateCamera(1); camera.position.copy(camWant); camera.lookAt(camTarget);
+  setTimeOfDay(MODES.includes(params.get('tod')) ? params.get('tod') : (params.has('night') ? 'night' : 'day'), true);
+  updatePlayer(0, 0); updateCamera(1); camera.position.copy(camWant); camera.lookAt(camTarget);
   updateSun(); updateLods(true);
   $('status').textContent = 'Preparing shaders…';
   await new Promise(r => setTimeout(r, 30));
@@ -1072,9 +1486,11 @@ async function begin(mode) {
   sound.start();
   $('start').style.display = 'none'; $('hud').style.display = 'block';
   state.startTime = performance.now(); last = performance.now();
-  showBanner('Kedarkantha Trail', 'Follow the trampled path through the pines to ' + CAMP.name + '.', 5);
+  showBanner('Sankri · 1,950 m', 'Follow the trail and the stone cairns up through the forest to Juda Ka Talab.', 6);
   renderer.setAnimationLoop(loop);
-  window.__game = { state, player, camera, setNight, CAMP, heightAt };
+  window.__game = { renderer, lodSets, state, player, camera, setNight, setTimeOfDay, heightAt, trail, places, CAMPS, trailInfo,
+    sim: (secs, dt = 1 / 30) => { let t = elapsed; for (let k = 0; k < secs / dt; k++) { t += dt; updatePlayer(dt, t); } },   // used for testing
+    snap: () => { updatePlayer(0, 0); updateCamera(1); camera.position.copy(camWant); camera.lookAt(camTarget); updateLods(true); } };   // used for testing
 }
 $('goFull').addEventListener('click', () => begin('full'), { once: true });
 $('goLite').addEventListener('click', () => begin('lite'), { once: true });
